@@ -10,7 +10,3 @@ jobs:
   ci:
     uses: Blorkfield/blork-infra/.github/workflows/ci.yml@main
     secrets: inherit
-    with:
-      node_version: '22'
-      run_typecheck: true
-      enable_automerge: true

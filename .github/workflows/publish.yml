@@ -15,8 +15,6 @@ jobs:
     uses: Blorkfield/blork-infra/.github/workflows/publish.yml@main
     secrets: inherit
     with:
-      node_version: '22'
-      publish_npm: false
       publish_docker: true
       docker_image_name: 'obs-overlay'
       force_publish: ${{ inputs.force_publish || false }}
