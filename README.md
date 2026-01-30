@@ -65,6 +65,39 @@ Open http://localhost:8080 in your browser.
 
 Settings are persisted to browser localStorage. When used as an OBS Browser Source, config survives OBS restarts.
 
+## CI/CD
+
+This project uses shared workflows from [blork-infra](https://github.com/Blorkfield/blork-infra).
+
+### Automated Pipeline
+
+1. **Push to feature branch** (e.g., `feat/add-new-effect`)
+   - Auto-PR workflow creates a PR and changeset based on branch prefix
+   - Branch naming: `feat/`, `fix/`, `chore/`, `docs/`, `refactor/`, `perf/`, `test/`, `breaking/`
+
+2. **PR to main**
+   - CI runs build and typecheck
+   - Auto-merges on success (squash + delete branch)
+
+3. **Merge to main with changesets**
+   - Creates a release PR to version the package
+
+4. **Release PR merges**
+   - Builds and pushes Docker image to `ghcr.io/blorkfield/obs-overlay`
+
+### Manual Publish
+
+Trigger a manual publish via GitHub Actions → Publish → Run workflow.
+
+### Local Development
+
+```bash
+pnpm install          # Install dependencies
+pnpm dev              # Start dev server
+pnpm build            # Build for production
+pnpm typecheck        # Run TypeScript checks
+```
+
 ## License
 
 GPL-3.0
