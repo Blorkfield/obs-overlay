@@ -10,6 +10,11 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
 jobs:
   publish:
     uses: Blorkfield/blork-infra/.github/workflows/publish.yml@main
