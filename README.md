@@ -46,7 +46,8 @@ Open http://localhost:8080 in your browser.
    - Check "Shutdown source when not visible" if desired
 
 3. **Connect the Overlay:**
-   - In the overlay's OBS Connection panel, enter the WebSocket address
+   - Right-click the Browser Source → "Interact" to open the interaction window
+   - In the OBS Connection panel, enter the WebSocket address
    - Enter password if authentication is enabled
    - Click Connect
 
