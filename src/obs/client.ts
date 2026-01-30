@@ -56,7 +56,10 @@ export class OBSClient {
     });
 
     this.obs.on('SceneListChanged', (data) => {
-      this.emit('sceneListChanged', { scenes: data.scenes.map(s => s.sceneName) });
+      const scenes = data.scenes
+        .map(s => s.sceneName)
+        .filter((name): name is string => typeof name === 'string');
+      this.emit('sceneListChanged', { scenes });
     });
 
     // Stream events

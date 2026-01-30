@@ -2,7 +2,7 @@ import { OverlayScene, setLogLevel } from '@blorkfield/overlay-core';
 import { TabManager } from '@blorkfield/blork-tabs';
 import '@blorkfield/blork-tabs/styles.css';
 import { OBSClient } from './obs/index.js';
-import { loadConfig, saveConfig, type AppConfig } from './config.js';
+import { loadConfig, saveConfig } from './config.js';
 
 // Load config
 let config = loadConfig();
