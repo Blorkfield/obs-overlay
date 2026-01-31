@@ -28,5 +28,9 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 
+# Python
+__pycache__/
+*.pyc
+
 # Docker
 docker-compose.override.yml

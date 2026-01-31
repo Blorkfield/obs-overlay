@@ -124,6 +124,7 @@ function connectMouseWebSocket(): void {
         const x = data.x;
         const y = data.y;
         scene?.setMousePosition(x, y);
+        scene?.setFollowTarget('absolute', x, y);
         obsClient.updateMousePosition(x, y);
         mousePosition.textContent = `X: ${x}, Y: ${y}`;
 
@@ -151,7 +152,7 @@ function connectMouseWebSocket(): void {
 connectMouseWebSocket();
 
 // Tag state
-const spawnableTags = ['falling', 'follow', 'grabable'];
+const spawnableTags = ['falling', 'follow', 'follow-absolute', 'grabable'];
 let selectedSpawnTags: string[] = [];
 
 function getContainerSize(): { width: number; height: number } {
@@ -587,11 +588,12 @@ window.addEventListener('resize', () => {
 const urlParams = new URLSearchParams(window.location.search);
 const hidePanels = urlParams.get('panels') === 'hidden';
 
-// Hide all panels if URL param is set
+// Hide all panels and stats if URL param is set
 if (hidePanels) {
   [connectionPanel, settingsPanel, entityPanel, effectsPanel, inputPanel].forEach(panel => {
     panel.style.display = 'none';
   });
+  statsEl.style.display = 'none';
 }
 
 // Initialize TabManager (only if panels are visible)
