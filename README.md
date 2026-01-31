@@ -37,9 +37,11 @@ Overlay runs at http://localhost:5173 (dev) or http://localhost:80 (production)
 ### 1. Browser Source
 
 1. Add a new **Browser Source** in OBS
-2. Set URL to `http://localhost:5173` (dev) or your production URL
+2. Set URL to `http://localhost:5173?panels=hidden` (dev) or your production URL with the same parameter
 3. Set dimensions to match your canvas (e.g., 1920x1080)
 4. Enable transparency if desired
+
+> **Tip:** Use `?panels=hidden` in the OBS browser source URL to hide the control panels in your stream. To configure the overlay, either remove the parameter temporarily or open the URL without it in a regular browser window.
 
 ### 2. WebSocket Connection
 
@@ -127,6 +129,14 @@ Mouse data flows from the OBS script (running inside OBS) through WebSocket to t
 ## Configuration
 
 Settings persist to browser localStorage. When used as an OBS Browser Source, config survives OBS restarts.
+
+### URL Parameters
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `panels` | `hidden` | Hides all control panels (use for OBS browser source) |
+
+**Example:** `http://localhost:5173?panels=hidden`
 
 ## Development
 

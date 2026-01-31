@@ -583,63 +583,76 @@ window.addEventListener('resize', () => {
   }
 });
 
-// Initialize TabManager
-const tabManager = new TabManager({
-  snapThreshold: 50,
-  panelGap: 0,
-  panelMargin: 16,
-  anchorThreshold: 80,
-  defaultPanelWidth: 300,
-  initializeDefaultAnchors: true,
-  classPrefix: 'blork-tabs',
-});
+// Check URL params for panel visibility
+const urlParams = new URLSearchParams(window.location.search);
+const hidePanels = urlParams.get('panels') === 'hidden';
 
-tabManager.registerPanel('connection', connectionPanel, {
-  dragHandle: connectionDragHandle,
-  collapseButton: connectionCollapseBtn,
-  contentWrapper: connectionContent,
-  detachGrip: document.getElementById('connection-detach-grip') as HTMLDivElement,
-  startCollapsed: false,
-});
+// Hide all panels if URL param is set
+if (hidePanels) {
+  [connectionPanel, settingsPanel, entityPanel, effectsPanel, inputPanel].forEach(panel => {
+    panel.style.display = 'none';
+  });
+}
 
-tabManager.registerPanel('settings', settingsPanel, {
-  dragHandle: settingsDragHandle,
-  collapseButton: settingsCollapseBtn,
-  contentWrapper: settingsContent,
-  detachGrip: document.getElementById('settings-detach-grip') as HTMLDivElement,
-  startCollapsed: true,
-});
+// Initialize TabManager (only if panels are visible)
+if (!hidePanels) {
+  const tabManager = new TabManager({
+    snapThreshold: 50,
+    panelGap: 0,
+    panelMargin: 16,
+    anchorThreshold: 80,
+    defaultPanelWidth: 300,
+    initializeDefaultAnchors: true,
+    classPrefix: 'blork-tabs',
+  });
 
-tabManager.registerPanel('entity', entityPanel, {
-  dragHandle: entityDragHandle,
-  collapseButton: entityCollapseBtn,
-  contentWrapper: entityContent,
-  detachGrip: document.getElementById('entity-detach-grip') as HTMLDivElement,
-  startCollapsed: true,
-});
+  tabManager.registerPanel('connection', connectionPanel, {
+    dragHandle: connectionDragHandle,
+    collapseButton: connectionCollapseBtn,
+    contentWrapper: connectionContent,
+    detachGrip: document.getElementById('connection-detach-grip') as HTMLDivElement,
+    startCollapsed: false,
+  });
 
-tabManager.registerPanel('effects', effectsPanel, {
-  dragHandle: effectsDragHandle,
-  collapseButton: effectsCollapseBtn,
-  contentWrapper: effectsContent,
-  detachGrip: document.getElementById('effects-detach-grip') as HTMLDivElement,
-  startCollapsed: true,
-});
+  tabManager.registerPanel('settings', settingsPanel, {
+    dragHandle: settingsDragHandle,
+    collapseButton: settingsCollapseBtn,
+    contentWrapper: settingsContent,
+    detachGrip: document.getElementById('settings-detach-grip') as HTMLDivElement,
+    startCollapsed: true,
+  });
 
-tabManager.registerPanel('input', inputPanel, {
-  dragHandle: inputDragHandle,
-  collapseButton: inputCollapseBtn,
-  contentWrapper: inputContent,
-  detachGrip: document.getElementById('input-detach-grip') as HTMLDivElement,
-  startCollapsed: true,
-});
+  tabManager.registerPanel('entity', entityPanel, {
+    dragHandle: entityDragHandle,
+    collapseButton: entityCollapseBtn,
+    contentWrapper: entityContent,
+    detachGrip: document.getElementById('entity-detach-grip') as HTMLDivElement,
+    startCollapsed: true,
+  });
 
-requestAnimationFrame(() => {
-  // Order: OBS Connection, Settings, Input Detection, Entity Management, Effects
-  // positionPanelsFromRight takes them in reverse order (rightmost first)
-  tabManager.positionPanelsFromRight(['effects', 'entity', 'input', 'settings', 'connection']);
-  tabManager.createSnapChain(['connection', 'settings', 'input', 'entity', 'effects']);
-});
+  tabManager.registerPanel('effects', effectsPanel, {
+    dragHandle: effectsDragHandle,
+    collapseButton: effectsCollapseBtn,
+    contentWrapper: effectsContent,
+    detachGrip: document.getElementById('effects-detach-grip') as HTMLDivElement,
+    startCollapsed: true,
+  });
+
+  tabManager.registerPanel('input', inputPanel, {
+    dragHandle: inputDragHandle,
+    collapseButton: inputCollapseBtn,
+    contentWrapper: inputContent,
+    detachGrip: document.getElementById('input-detach-grip') as HTMLDivElement,
+    startCollapsed: true,
+  });
+
+  requestAnimationFrame(() => {
+    // Order: OBS Connection, Settings, Input Detection, Entity Management, Effects
+    // positionPanelsFromRight takes them in reverse order (rightmost first)
+    tabManager.positionPanelsFromRight(['effects', 'entity', 'input', 'settings', 'connection']);
+    tabManager.createSnapChain(['connection', 'settings', 'input', 'entity', 'effects']);
+  });
+}
 
 // Initialize scene
 const size = getContainerSize();
