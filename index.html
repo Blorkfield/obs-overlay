@@ -289,6 +289,15 @@
       text-align: center;
       padding: 20px;
     }
+    /* Auto-hide panels for OBS streaming */
+    .blork-tabs-panel, #stats {
+      transition: opacity 0.3s ease;
+    }
+    body.panels-auto-hide .blork-tabs-panel,
+    body.panels-auto-hide #stats {
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
     .tag-picker {
       margin-top: 12px;
     }

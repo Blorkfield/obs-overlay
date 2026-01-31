@@ -620,9 +620,39 @@ window.addEventListener('resize', () => {
 
 // Check URL params for panel visibility
 const urlParams = new URLSearchParams(window.location.search);
-const hidePanels = urlParams.get('panels') === 'hidden';
+const panelsParam = urlParams.get('panels');
+const hidePanels = panelsParam === 'hidden';
+const showPanels = panelsParam === 'visible'; // Force always visible
 
-// Hide all panels and stats if URL param is set
+// Auto-hide panels logic (default behavior, disable with ?panels=visible)
+if (!hidePanels && !showPanels) {
+  let hideTimeout: ReturnType<typeof setTimeout> | null = null;
+  const AUTO_HIDE_DELAY = 3000;
+
+  function hideUI(): void {
+    document.body.classList.add('panels-auto-hide');
+  }
+
+  function showUI(): void {
+    document.body.classList.remove('panels-auto-hide');
+  }
+
+  function resetHideTimer(): void {
+    showUI();
+    if (hideTimeout) clearTimeout(hideTimeout);
+    hideTimeout = setTimeout(hideUI, AUTO_HIDE_DELAY);
+  }
+
+  // Start hidden
+  hideUI();
+
+  // Show on browser interaction (not WebSocket data)
+  document.addEventListener('mousemove', resetHideTimer);
+  document.addEventListener('mousedown', resetHideTimer);
+  document.addEventListener('keydown', resetHideTimer);
+}
+
+// Hide all panels and stats completely if URL param is 'hidden'
 if (hidePanels) {
   [connectionPanel, settingsPanel, entityPanel, effectsPanel, inputPanel].forEach(panel => {
     panel.style.display = 'none';
