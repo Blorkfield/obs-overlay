@@ -93,6 +93,63 @@ const inputContent = document.getElementById('input-content') as HTMLDivElement;
 let scene: OverlayScene | null = null;
 let canvas: HTMLCanvasElement | null = null;
 
+// Mouse WebSocket state
+let mouseWs: WebSocket | null = null;
+
+function connectMouseWebSocket(): void {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/mouse`;
+
+  mouseWs = new WebSocket(wsUrl);
+
+  mouseWs.onopen = () => {
+    console.log('Mouse WebSocket connected');
+  };
+
+  mouseWs.onclose = () => {
+    console.log('Mouse WebSocket disconnected, retrying in 3s...');
+    setTimeout(connectMouseWebSocket, 3000);
+  };
+
+  mouseWs.onerror = () => {
+    // Will trigger onclose
+  };
+
+  mouseWs.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'mouse' || data.type === 'move') {
+        // Mouse position update from OBS script
+        const x = data.x;
+        const y = data.y;
+        scene?.setMousePosition(x, y);
+        obsClient.updateMousePosition(x, y);
+        mousePosition.textContent = `X: ${x}, Y: ${y}`;
+
+        // Handle button states if included
+        if (data.buttons) {
+          for (const [button, pressed] of Object.entries(data.buttons)) {
+            obsClient.setMouseButton(button as 'left' | 'right' | 'middle', pressed as boolean);
+            updateMouseButtonDisplay(button, pressed as boolean);
+          }
+        }
+      } else if (data.type === 'click') {
+        // Mouse button event from OBS script
+        const button = data.button;
+        const pressed = data.pressed;
+        obsClient.setMouseButton(button, pressed);
+        updateMouseButtonDisplay(button, pressed);
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  };
+}
+
+// Start mouse WebSocket connection
+connectMouseWebSocket();
+
 // Tag state
 const spawnableTags = ['falling', 'follow', 'grabable'];
 let selectedSpawnTags: string[] = [];
@@ -141,28 +198,24 @@ async function createScene(width: number, height: number): Promise<void> {
     despawnBelowFloor: 1.0
   });
 
-  // Track mouse position
+  // Track mouse for scene interaction (dragging, grabbing entities, etc.)
   canvas.addEventListener('mousemove', (e) => {
     if (!scene || !canvas) return;
     const rect = canvas.getBoundingClientRect();
     const x = Math.round(e.clientX - rect.left);
     const y = Math.round(e.clientY - rect.top);
     scene.setMousePosition(x, y);
-    obsClient.updateMousePosition(x, y);
-    mousePosition.textContent = `X: ${x}, Y: ${y}`;
   });
 
-  // Track mouse buttons
   canvas.addEventListener('mousedown', (e) => {
     const button = e.button === 0 ? 'left' : e.button === 1 ? 'middle' : 'right';
+    // Only update scene interaction, not the display (that comes from OBS script)
     obsClient.setMouseButton(button, true);
-    updateMouseButtonDisplay(button, true);
   });
 
   canvas.addEventListener('mouseup', (e) => {
     const button = e.button === 0 ? 'left' : e.button === 1 ? 'middle' : 'right';
     obsClient.setMouseButton(button, false);
-    updateMouseButtonDisplay(button, false);
   });
 
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());

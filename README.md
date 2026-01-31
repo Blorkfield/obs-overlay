@@ -5,8 +5,9 @@ Physics-based streaming overlay with OBS Studio integration. Built on [@blorkfie
 ## Features
 
 - Physics simulation with Matter.js (gravity, collisions, pressure collapse)
-- OBS WebSocket integration (scene changes, stream/recording status, mouse events)
-- Real-time input detection (mouse position, left/right/middle click, hold detection)
+- OBS WebSocket integration (scene changes, stream/recording status)
+- Real-time mouse tracking (system-wide via OBS script)
+- Mouse button state detection (left, right, middle, hold detection)
 - Entity spawning with customizable tags and properties
 - Text obstacles with TTF font support
 - Configurable effects (burst, rain, stream)
@@ -21,35 +22,97 @@ pnpm install
 pnpm dev
 ```
 
-Open http://localhost:5173 in your browser.
+Overlay runs at http://localhost:5173
 
 ### Docker
 
 ```bash
-docker build -t obs-overlay .
-docker run -p 8080:80 obs-overlay
+docker compose up
 ```
 
-Open http://localhost:8080 in your browser.
+Overlay runs at http://localhost:5173 (dev) or http://localhost:80 (production)
 
 ## OBS Setup
 
-1. **Enable WebSocket Server in OBS:**
-   - Go to Tools → WebSocket Server Settings
-   - Enable the server (default port: 4455)
-   - Optionally enable authentication and set a password
+### 1. Browser Source
 
-2. **Add Browser Source in OBS:**
-   - Add a new Browser Source
-   - URL: `http://localhost:5173` (dev) or `http://localhost:8080` (docker)
-   - Width/Height: Match your canvas size (e.g., 1920x1080)
-   - Check "Shutdown source when not visible" if desired
+1. Add a new **Browser Source** in OBS
+2. Set URL to `http://localhost:5173` (dev) or your production URL
+3. Set dimensions to match your canvas (e.g., 1920x1080)
+4. Enable transparency if desired
 
-3. **Connect the Overlay:**
-   - Right-click the Browser Source → "Interact" to open the interaction window
-   - In the OBS Connection panel, enter the WebSocket address
-   - Enter password if authentication is enabled
-   - Click Connect
+### 2. WebSocket Connection
+
+1. In OBS: **Tools > WebSocket Server Settings**
+2. Enable the WebSocket server (default port: 4455)
+3. Set a password if desired
+4. In the overlay's Connection panel, enter the WebSocket address and connect
+
+### 3. Mouse Capture Script
+
+The overlay tracks your system mouse position via an OBS script. This captures mouse coordinates relative to your screen display - not browser interaction.
+
+#### Install Python Dependencies
+
+**Arch Linux (AUR):**
+```bash
+yay -S python-pynput python-websocket-client
+```
+
+**Debian/Ubuntu:**
+```bash
+sudo apt install python3-pynput python3-websocket
+```
+
+**Fedora:**
+```bash
+sudo dnf install python3-pynput python3-websocket-client
+```
+
+**macOS/Windows/Other (pip):**
+```bash
+pip install pynput websocket-client
+```
+
+#### Configure OBS Python Path
+
+1. In OBS: **Tools > Scripts > Python Settings**
+2. Set the Python install path:
+   - **Arch Linux:** `/usr` (not the full python3 path)
+   - **Debian/Ubuntu:** `/usr`
+   - **Fedora:** `/usr`
+   - **macOS (Homebrew):** `/opt/homebrew/Frameworks/Python.framework/Versions/3.x` or `/usr/local/Cellar/python@3.x/...`
+   - **Windows:** `C:\Python311` or your Python install directory
+
+   > **Note:** On Linux, OBS expects the prefix directory (e.g., `/usr`), not the python binary path. OBS will look for `lib/python3.x/` under this path.
+
+#### Add the Script
+
+1. In OBS: **Tools > Scripts**
+2. Click **+** and select `obs-scripts/mouse_capture.py` from this repository
+3. Configure the script settings:
+   - **Overlay WebSocket URL**: `ws://localhost:5173/mouse?source=obs`
+   - **Enable mouse capture**: checked
+   - **Send interval**: 16ms (~60fps, adjust if needed)
+
+The script connects automatically when OBS starts. Check **Script Log** for connection status.
+
+## Architecture
+
+```
+Your Mouse (system-wide)
+    │
+    ▼
+OBS Script (mouse_capture.py)
+    │ pynput captures position
+    ▼
+WebSocket ───────────────────► Overlay (browser source)
+    ws://localhost:PORT/mouse     │ receives & displays
+                                  ▼
+                             OBS Scene
+```
+
+Mouse data flows from the OBS script (running inside OBS) through WebSocket to the overlay. No separate background process required - the script runs within OBS itself.
 
 ## Panels
 
@@ -63,7 +126,17 @@ Open http://localhost:8080 in your browser.
 
 ## Configuration
 
-Settings are persisted to browser localStorage. When used as an OBS Browser Source, config survives OBS restarts.
+Settings persist to browser localStorage. When used as an OBS Browser Source, config survives OBS restarts.
+
+## Development
+
+```bash
+pnpm install      # Install dependencies
+pnpm dev          # Start dev server with hot reload
+pnpm build        # Build for production
+pnpm start        # Run production server (after build)
+pnpm typecheck    # Run TypeScript checks
+```
 
 ## CI/CD
 
@@ -87,16 +160,14 @@ This project uses shared workflows from [blork-infra](https://github.com/Blorkfi
 
 ### Manual Publish
 
-Trigger a manual publish via GitHub Actions → Publish → Run workflow.
+Trigger a manual publish via GitHub Actions > Publish > Run workflow.
 
-### Local Development
+## Requirements
 
-```bash
-pnpm install          # Install dependencies
-pnpm dev              # Start dev server
-pnpm build            # Build for production
-pnpm typecheck        # Run TypeScript checks
-```
+- Node.js 22+
+- pnpm
+- OBS Studio 28+ (includes WebSocket server)
+- Python 3.x with `pynput` and `websocket-client`
 
 ## License
 
