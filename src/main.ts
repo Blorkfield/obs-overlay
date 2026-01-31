@@ -30,6 +30,12 @@ const btnBgTransparent = document.getElementById('btn-bg-transparent') as HTMLBu
 const btnBgDefault = document.getElementById('btn-bg-default') as HTMLButtonElement;
 const inputBgColor = document.getElementById('input-bg-color') as HTMLInputElement;
 
+// Mouse capture offset elements
+const inputOffsetX = document.getElementById('input-offset-x') as HTMLInputElement;
+const inputOffsetY = document.getElementById('input-offset-y') as HTMLInputElement;
+const inputScaleX = document.getElementById('input-scale-x') as HTMLInputElement;
+const inputScaleY = document.getElementById('input-scale-y') as HTMLInputElement;
+
 // Entity panel elements
 const selectEntityImage = document.getElementById('select-entity-image') as HTMLSelectElement;
 const inputEntityTtl = document.getElementById('input-entity-ttl') as HTMLInputElement;
@@ -96,6 +102,18 @@ let canvas: HTMLCanvasElement | null = null;
 // Mouse WebSocket state
 let mouseWs: WebSocket | null = null;
 
+// Transform mouse coordinates from screen space to canvas space
+function transformMouseCoordinates(
+  rawX: number,
+  rawY: number
+): { x: number; y: number } {
+  const { offset, scale } = config.mouseCapture;
+  return {
+    x: (rawX - offset.x) * scale.x,
+    y: (rawY - offset.y) * scale.y
+  };
+}
+
 function connectMouseWebSocket(): void {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}/mouse`;
@@ -120,13 +138,12 @@ function connectMouseWebSocket(): void {
       const data = JSON.parse(event.data);
 
       if (data.type === 'mouse' || data.type === 'move') {
-        // Mouse position update from OBS script
-        const x = data.x;
-        const y = data.y;
+        // Mouse position update from OBS script - transform to canvas space
+        const { x, y } = transformMouseCoordinates(data.x, data.y);
         scene?.setMousePosition(x, y);
         scene?.setFollowTarget('absolute', x, y);
         obsClient.updateMousePosition(x, y);
-        mousePosition.textContent = `X: ${x}, Y: ${y}`;
+        mousePosition.textContent = `X: ${Math.round(x)}, Y: ${Math.round(y)}`;
 
         // Handle button states if included
         if (data.buttons) {
@@ -569,12 +586,29 @@ btnBgTransparent.addEventListener('click', setTransparentBackground);
 btnBgDefault.addEventListener('click', setDefaultBackground);
 inputBgColor.addEventListener('change', applyBackgroundColor);
 
+// Mouse capture offset handlers
+function updateMouseCaptureConfig(): void {
+  config.mouseCapture.offset.x = parseFloat(inputOffsetX.value) || 0;
+  config.mouseCapture.offset.y = parseFloat(inputOffsetY.value) || 0;
+  config.mouseCapture.scale.x = parseFloat(inputScaleX.value) || 1;
+  config.mouseCapture.scale.y = parseFloat(inputScaleY.value) || 1;
+  saveConfig(config);
+}
+inputOffsetX.addEventListener('change', updateMouseCaptureConfig);
+inputOffsetY.addEventListener('change', updateMouseCaptureConfig);
+inputScaleX.addEventListener('change', updateMouseCaptureConfig);
+inputScaleY.addEventListener('change', updateMouseCaptureConfig);
+
 // Initialize UI from config
 inputOBSAddress.value = config.obs.address;
 inputOBSPassword.value = config.obs.password;
 checkboxDebug.checked = config.overlay.debug;
 selectLogLevel.value = config.overlay.logLevel;
 inputBgColor.value = config.overlay.background.color;
+inputOffsetX.value = String(config.mouseCapture.offset.x);
+inputOffsetY.value = String(config.mouseCapture.offset.y);
+inputScaleX.value = String(config.mouseCapture.scale.x);
+inputScaleY.value = String(config.mouseCapture.scale.y);
 
 // Handle resize
 window.addEventListener('resize', () => {
