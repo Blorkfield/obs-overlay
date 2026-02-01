@@ -60,7 +60,7 @@ const btnRemoveTag = document.getElementById('btn-remove-tag') as HTMLButtonElem
 const btnReleaseAll = document.getElementById('btn-release-all') as HTMLButtonElement;
 const btnRemoveAll = document.getElementById('btn-remove-all') as HTMLButtonElement;
 
-// Input detection panel elements
+// Event detection panel elements
 const mousePosition = document.getElementById('mouse-position') as HTMLSpanElement;
 const mouseLeft = document.getElementById('mouse-left') as HTMLSpanElement;
 const mouseRight = document.getElementById('mouse-right') as HTMLSpanElement;
@@ -68,6 +68,7 @@ const mouseMiddle = document.getElementById('mouse-middle') as HTMLSpanElement;
 const obsScene = document.getElementById('obs-scene') as HTMLSpanElement;
 const obsStream = document.getElementById('obs-stream') as HTMLSpanElement;
 const obsRecording = document.getElementById('obs-recording') as HTMLSpanElement;
+const eventLog = document.getElementById('event-log') as HTMLDivElement;
 
 // Panel elements
 const connectionPanel = document.getElementById('connection-panel') as HTMLDivElement;
@@ -101,6 +102,25 @@ let canvas: HTMLCanvasElement | null = null;
 
 // Mouse WebSocket state
 let mouseWs: WebSocket | null = null;
+
+// Event logging
+function logEvent(eventName: string, data?: Record<string, unknown>): void {
+  if (!eventLog) return;
+
+  const entry = document.createElement('div');
+  entry.className = 'event-log-entry';
+
+  const dataStr = data ? `: ${JSON.stringify(data)}` : '';
+  entry.innerHTML = `<span class="event-name">${eventName}</span><span class="event-data">${dataStr}</span>`;
+
+  eventLog.appendChild(entry);
+  eventLog.scrollTop = eventLog.scrollHeight;
+
+  // Limit log entries (keep title + 50 entries)
+  while (eventLog.children.length > 50) {
+    eventLog.removeChild(eventLog.children[0]);
+  }
+}
 
 // Transform mouse coordinates from screen space to canvas space
 function transformMouseCoordinates(
@@ -156,6 +176,19 @@ function connectMouseWebSocket(): void {
         // Mouse button event from OBS script
         const button = data.button;
         const pressed = data.pressed;
+        const { x, y } = transformMouseCoordinates(data.x, data.y);
+
+        // For left button, use grab API (mouse position already set with offset above)
+        if (button === 'left') {
+          if (pressed) {
+            const grabbedId = scene?.startGrab();
+            logEvent('ws:grab:start', { x, y, grabbed: grabbedId ?? null });
+          } else {
+            scene?.endGrab();
+            logEvent('ws:grab:end', { x, y });
+          }
+        }
+
         obsClient.setMouseButton(button, pressed);
         updateMouseButtonDisplay(button, pressed);
       }
@@ -226,13 +259,34 @@ async function createScene(width: number, height: number): Promise<void> {
   });
 
   canvas.addEventListener('mousedown', (e) => {
+    if (!canvas) return;
     const button = e.button === 0 ? 'left' : e.button === 1 ? 'middle' : 'right';
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.round(e.clientX - rect.left);
+    const y = Math.round(e.clientY - rect.top);
+
+    // For left click, grab at current mouse position (no offset for direct interaction)
+    if (button === 'left') {
+      const grabbedId = scene?.startGrab();
+      logEvent('canvas:grab:start', { x, y, grabbed: grabbedId ?? null });
+    }
+
     // Only update scene interaction, not the display (that comes from OBS script)
     obsClient.setMouseButton(button, true);
   });
 
   canvas.addEventListener('mouseup', (e) => {
+    if (!canvas) return;
     const button = e.button === 0 ? 'left' : e.button === 1 ? 'middle' : 'right';
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.round(e.clientX - rect.left);
+    const y = Math.round(e.clientY - rect.top);
+
+    if (button === 'left') {
+      scene?.endGrab();
+      logEvent('canvas:grab:end', { x, y });
+    }
+
     obsClient.setMouseButton(button, false);
   });
 

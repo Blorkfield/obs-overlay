@@ -12,8 +12,8 @@ importers:
         specifier: ^0.2.5
         version: 0.2.5
       '@blorkfield/overlay-core':
-        specifier: ^0.8.0
-        version: 0.8.0
+        specifier: ^0.8.1
+        version: 0.8.1
       express:
         specifier: ^4.21.0
         version: 4.22.1
@@ -50,8 +50,8 @@ packages:
     resolution: {integrity: sha512-93LlxOMkN7BNEfSl6rgJ4KvJw+IArmoGnVKYs/IrprA2803TSBzTuJ0ZP12gfK1d99WLGfoS8NbDGWHE3ZvLLA==}
     engines: {node: '>=18.0.0'}
 
-  '@blorkfield/overlay-core@0.8.0':
-    resolution: {integrity: sha512-iTEjxxrjL/aefa09K6cAcbtjJklvrlVU9GMDj2k/0FmDLRTaWjltMDoXXf/EyOLC7/WkcAkco1vWie8cNdXGiw==}
+  '@blorkfield/overlay-core@0.8.1':
+    resolution: {integrity: sha512-ucd/qDAeWM3Wf6K0iQy2WQfAmGbcJxRWPuOKrpAHtwPEN/KjkhvK7Ai6HmHis1FJgXfWAUrjgBuD1+biq3b5lA==}
 
   '@changesets/apply-release-plan@7.0.14':
     resolution: {integrity: sha512-ddBvf9PHdy2YY0OUiEl3TV78mH9sckndJR14QAt87KLEbIov81XO0q0QAmvooBxXlqRRP8I9B7XOzZwQG7JkWA==}
@@ -1187,7 +1187,7 @@ snapshots:
 
   '@blorkfield/blork-tabs@0.2.5': {}
 
-  '@blorkfield/overlay-core@0.8.0':
+  '@blorkfield/overlay-core@0.8.1':
     dependencies:
       matter-js: 0.19.0
       opentype.js: 1.3.4

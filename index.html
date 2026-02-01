@@ -133,6 +133,31 @@
       width: auto;
       min-width: 0;
     }
+    .event-log {
+      max-height: 150px;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+      padding: 8px;
+      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-size: 11px;
+      overflow-y: auto;
+    }
+    .event-log-entry {
+      padding: 3px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      color: #a0a0a0;
+      word-break: break-all;
+    }
+    .event-log-entry:last-child {
+      border-bottom: none;
+    }
+    .event-log-entry .event-name {
+      color: #4a90d9;
+    }
+    .event-log-entry .event-data {
+      color: #888;
+    }
     .select-input {
       padding: 8px;
       border: 1px solid #4a4a6a;
@@ -671,11 +696,11 @@
     </div>
   </div>
 
-  <!-- Input Detection Panel -->
+  <!-- Event Detection Panel -->
   <div id="input-panel" class="blork-tabs-panel">
     <div class="blork-tabs-header" id="input-drag-handle">
       <div class="blork-tabs-detach-grip" id="input-detach-grip"></div>
-      <span class="blork-tabs-title">Input Detection</span>
+      <span class="blork-tabs-title">Event Detection</span>
       <button class="blork-tabs-collapse-btn" id="input-collapse">+</button>
     </div>
     <div class="blork-tabs-content blork-tabs-content-collapsed" id="input-content">
@@ -719,6 +744,13 @@
             <label>Recording:</label>
             <span id="obs-recording" style="font-size:12px;color:#aaa">--</span>
           </div>
+        </div>
+      </div>
+      <div class="effect-section">
+        <div class="effect-header" style="margin-bottom:8px">
+          <span class="effect-title">Event Log</span>
+        </div>
+        <div id="event-log" class="event-log">
         </div>
       </div>
     </div>
