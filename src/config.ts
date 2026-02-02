@@ -11,6 +11,10 @@ export interface AppConfig {
       transparent: boolean;
     };
   };
+  mouseCapture: {
+    offset: { x: number; y: number };
+    scale: { x: number; y: number };
+  };
   eventMappings: EventMapping[];
 }
 
@@ -37,6 +41,10 @@ const DEFAULT_CONFIG: AppConfig = {
       transparent: true
     }
   },
+  mouseCapture: {
+    offset: { x: 0, y: 0 },
+    scale: { x: 1, y: 1 }
+  },
   eventMappings: []
 };
 
@@ -44,7 +52,23 @@ export function loadConfig(): AppConfig {
   try {
     const stored = localStorage.getItem(CONFIG_KEY);
     if (stored) {
-      return { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
+      const parsed = JSON.parse(stored);
+      return {
+        ...DEFAULT_CONFIG,
+        ...parsed,
+        obs: { ...DEFAULT_CONFIG.obs, ...parsed.obs },
+        overlay: {
+          ...DEFAULT_CONFIG.overlay,
+          ...parsed.overlay,
+          background: { ...DEFAULT_CONFIG.overlay.background, ...parsed.overlay?.background }
+        },
+        mouseCapture: {
+          ...DEFAULT_CONFIG.mouseCapture,
+          ...parsed.mouseCapture,
+          offset: { ...DEFAULT_CONFIG.mouseCapture.offset, ...parsed.mouseCapture?.offset },
+          scale: { ...DEFAULT_CONFIG.mouseCapture.scale, ...parsed.mouseCapture?.scale }
+        }
+      };
     }
   } catch (err) {
     console.warn('Failed to load config from localStorage:', err);

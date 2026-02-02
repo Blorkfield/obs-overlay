@@ -9,8 +9,13 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 
-FROM nginx:alpine
-COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+FROM node:22-alpine
+
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/server ./server
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/node_modules ./node_modules
+
 EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "server/index.js"]

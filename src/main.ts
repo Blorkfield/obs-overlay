@@ -30,6 +30,12 @@ const btnBgTransparent = document.getElementById('btn-bg-transparent') as HTMLBu
 const btnBgDefault = document.getElementById('btn-bg-default') as HTMLButtonElement;
 const inputBgColor = document.getElementById('input-bg-color') as HTMLInputElement;
 
+// Mouse capture offset elements
+const inputOffsetX = document.getElementById('input-offset-x') as HTMLInputElement;
+const inputOffsetY = document.getElementById('input-offset-y') as HTMLInputElement;
+const inputScaleX = document.getElementById('input-scale-x') as HTMLInputElement;
+const inputScaleY = document.getElementById('input-scale-y') as HTMLInputElement;
+
 // Entity panel elements
 const selectEntityImage = document.getElementById('select-entity-image') as HTMLSelectElement;
 const inputEntityTtl = document.getElementById('input-entity-ttl') as HTMLInputElement;
@@ -54,7 +60,7 @@ const btnRemoveTag = document.getElementById('btn-remove-tag') as HTMLButtonElem
 const btnReleaseAll = document.getElementById('btn-release-all') as HTMLButtonElement;
 const btnRemoveAll = document.getElementById('btn-remove-all') as HTMLButtonElement;
 
-// Input detection panel elements
+// Event detection panel elements
 const mousePosition = document.getElementById('mouse-position') as HTMLSpanElement;
 const mouseLeft = document.getElementById('mouse-left') as HTMLSpanElement;
 const mouseRight = document.getElementById('mouse-right') as HTMLSpanElement;
@@ -62,6 +68,7 @@ const mouseMiddle = document.getElementById('mouse-middle') as HTMLSpanElement;
 const obsScene = document.getElementById('obs-scene') as HTMLSpanElement;
 const obsStream = document.getElementById('obs-stream') as HTMLSpanElement;
 const obsRecording = document.getElementById('obs-recording') as HTMLSpanElement;
+const eventLog = document.getElementById('event-log') as HTMLDivElement;
 
 // Panel elements
 const connectionPanel = document.getElementById('connection-panel') as HTMLDivElement;
@@ -93,8 +100,134 @@ const inputContent = document.getElementById('input-content') as HTMLDivElement;
 let scene: OverlayScene | null = null;
 let canvas: HTMLCanvasElement | null = null;
 
+// Mouse WebSocket state
+let mouseWs: WebSocket | null = null;
+
+// Event logging
+function logEvent(eventName: string, data?: Record<string, unknown>): void {
+  if (!eventLog) return;
+
+  const entry = document.createElement('div');
+  entry.className = 'event-log-entry';
+
+  const dataStr = data ? ` ${JSON.stringify(data)}` : '';
+  entry.innerHTML = `<span class="event-name">${eventName}</span><span class="event-data">${dataStr}</span>`;
+
+  eventLog.appendChild(entry);
+  eventLog.scrollTop = eventLog.scrollHeight;
+
+  // Limit log entries
+  while (eventLog.children.length > 50) {
+    eventLog.removeChild(eventLog.children[0]);
+  }
+}
+
+// Log click with entity positions
+function logClickWithEntities(source: string, clickX: number, clickY: number, rawX?: number, rawY?: number): void {
+  // Log the click coordinates
+  const clickData: Record<string, unknown> = { clickX, clickY };
+  if (rawX !== undefined && rawY !== undefined) {
+    clickData.rawX = rawX;
+    clickData.rawY = rawY;
+  }
+  logEvent(`${source}:click`, clickData);
+
+  // Log positions of all grabable entities
+  if (scene) {
+    const grabables = scene.getObjectsByTag('grabable');
+    if (grabables.length > 0) {
+      for (const obj of grabables) {
+        const dx = Math.round(obj.x - clickX);
+        const dy = Math.round(obj.y - clickY);
+        const dist = Math.round(Math.sqrt(dx * dx + dy * dy));
+        logEvent(`  entity`, { id: obj.id.slice(0, 8), x: Math.round(obj.x), y: Math.round(obj.y), dist });
+      }
+    }
+  }
+}
+
+// Transform mouse coordinates from screen space to canvas space
+function transformMouseCoordinates(
+  rawX: number,
+  rawY: number
+): { x: number; y: number } {
+  const { offset, scale } = config.mouseCapture;
+  return {
+    x: (rawX - offset.x) * scale.x,
+    y: (rawY - offset.y) * scale.y
+  };
+}
+
+function connectMouseWebSocket(): void {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/mouse`;
+
+  mouseWs = new WebSocket(wsUrl);
+
+  mouseWs.onopen = () => {
+    console.log('Mouse WebSocket connected');
+  };
+
+  mouseWs.onclose = () => {
+    console.log('Mouse WebSocket disconnected, retrying in 3s...');
+    setTimeout(connectMouseWebSocket, 3000);
+  };
+
+  mouseWs.onerror = () => {
+    // Will trigger onclose
+  };
+
+  mouseWs.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'mouse' || data.type === 'move') {
+        // Mouse position update from OBS script - transform to canvas space
+        const { x, y } = transformMouseCoordinates(data.x, data.y);
+        scene?.setFollowTarget('mouse', x, y);
+        scene?.setFollowTarget('absolute', x, y);
+        obsClient.updateMousePosition(x, y);
+        mousePosition.textContent = `X: ${Math.round(x)}, Y: ${Math.round(y)}`;
+
+        // Handle button states if included
+        if (data.buttons) {
+          for (const [button, pressed] of Object.entries(data.buttons)) {
+            obsClient.setMouseButton(button as 'left' | 'right' | 'middle', pressed as boolean);
+            updateMouseButtonDisplay(button, pressed as boolean);
+          }
+        }
+      } else if (data.type === 'click') {
+        // Mouse button event from OBS script
+        const button = data.button;
+        const pressed = data.pressed;
+        const { x, y } = transformMouseCoordinates(data.x, data.y);
+
+        // Update mouse position to click coordinates (critical for grab detection)
+        scene?.setFollowTarget('mouse', x, y);
+
+        // For left button down, log click with entity positions and try to grab
+        if (button === 'left' && pressed) {
+          logClickWithEntities('ws', x, y, data.x, data.y);
+          const grabbedId = scene?.startGrab();
+          logEvent('ws:grab', { result: grabbedId ?? 'none' });
+        } else if (button === 'left' && !pressed) {
+          scene?.endGrab();
+        }
+
+        obsClient.setMouseButton(button, pressed);
+        updateMouseButtonDisplay(button, pressed);
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  };
+}
+
+// Start mouse WebSocket connection
+connectMouseWebSocket();
+
 // Tag state
-const spawnableTags = ['falling', 'follow', 'grabable'];
+const spawnableTags = ['falling', 'follow', 'follow-absolute', 'grabable'];
 let selectedSpawnTags: string[] = [];
 
 function getContainerSize(): { width: number; height: number } {
@@ -141,28 +274,42 @@ async function createScene(width: number, height: number): Promise<void> {
     despawnBelowFloor: 1.0
   });
 
-  // Track mouse position
+  // Track mouse for scene interaction (dragging, grabbing entities, etc.)
   canvas.addEventListener('mousemove', (e) => {
     if (!scene || !canvas) return;
     const rect = canvas.getBoundingClientRect();
     const x = Math.round(e.clientX - rect.left);
     const y = Math.round(e.clientY - rect.top);
-    scene.setMousePosition(x, y);
-    obsClient.updateMousePosition(x, y);
-    mousePosition.textContent = `X: ${x}, Y: ${y}`;
+    scene.setFollowTarget('mouse', x, y);
   });
 
-  // Track mouse buttons
   canvas.addEventListener('mousedown', (e) => {
+    if (!canvas) return;
     const button = e.button === 0 ? 'left' : e.button === 1 ? 'middle' : 'right';
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.round(e.clientX - rect.left);
+    const y = Math.round(e.clientY - rect.top);
+
+    // For left click, log and grab at current mouse position (no offset for direct interaction)
+    if (button === 'left') {
+      logClickWithEntities('canvas', x, y);
+      const grabbedId = scene?.startGrab();
+      logEvent('canvas:grab', { result: grabbedId ?? 'none' });
+    }
+
+    // Only update scene interaction, not the display (that comes from OBS script)
     obsClient.setMouseButton(button, true);
-    updateMouseButtonDisplay(button, true);
   });
 
   canvas.addEventListener('mouseup', (e) => {
+    if (!canvas) return;
     const button = e.button === 0 ? 'left' : e.button === 1 ? 'middle' : 'right';
+
+    if (button === 'left') {
+      scene?.endGrab();
+    }
+
     obsClient.setMouseButton(button, false);
-    updateMouseButtonDisplay(button, false);
   });
 
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -515,12 +662,29 @@ btnBgTransparent.addEventListener('click', setTransparentBackground);
 btnBgDefault.addEventListener('click', setDefaultBackground);
 inputBgColor.addEventListener('change', applyBackgroundColor);
 
+// Mouse capture offset handlers
+function updateMouseCaptureConfig(): void {
+  config.mouseCapture.offset.x = parseFloat(inputOffsetX.value) || 0;
+  config.mouseCapture.offset.y = parseFloat(inputOffsetY.value) || 0;
+  config.mouseCapture.scale.x = parseFloat(inputScaleX.value) || 1;
+  config.mouseCapture.scale.y = parseFloat(inputScaleY.value) || 1;
+  saveConfig(config);
+}
+inputOffsetX.addEventListener('change', updateMouseCaptureConfig);
+inputOffsetY.addEventListener('change', updateMouseCaptureConfig);
+inputScaleX.addEventListener('change', updateMouseCaptureConfig);
+inputScaleY.addEventListener('change', updateMouseCaptureConfig);
+
 // Initialize UI from config
 inputOBSAddress.value = config.obs.address;
 inputOBSPassword.value = config.obs.password;
 checkboxDebug.checked = config.overlay.debug;
 selectLogLevel.value = config.overlay.logLevel;
 inputBgColor.value = config.overlay.background.color;
+inputOffsetX.value = String(config.mouseCapture.offset.x);
+inputOffsetY.value = String(config.mouseCapture.offset.y);
+inputScaleX.value = String(config.mouseCapture.scale.x);
+inputScaleY.value = String(config.mouseCapture.scale.y);
 
 // Handle resize
 window.addEventListener('resize', () => {
@@ -530,63 +694,107 @@ window.addEventListener('resize', () => {
   }
 });
 
-// Initialize TabManager
-const tabManager = new TabManager({
-  snapThreshold: 50,
-  panelGap: 0,
-  panelMargin: 16,
-  anchorThreshold: 80,
-  defaultPanelWidth: 300,
-  initializeDefaultAnchors: true,
-  classPrefix: 'blork-tabs',
-});
+// Check URL params for panel visibility
+const urlParams = new URLSearchParams(window.location.search);
+const panelsParam = urlParams.get('panels');
+const hidePanels = panelsParam === 'hidden';
+const showPanels = panelsParam === 'visible'; // Force always visible
 
-tabManager.registerPanel('connection', connectionPanel, {
-  dragHandle: connectionDragHandle,
-  collapseButton: connectionCollapseBtn,
-  contentWrapper: connectionContent,
-  detachGrip: document.getElementById('connection-detach-grip') as HTMLDivElement,
-  startCollapsed: false,
-});
+// Auto-hide panels logic (default behavior, disable with ?panels=visible)
+if (!hidePanels && !showPanels) {
+  let hideTimeout: ReturnType<typeof setTimeout> | null = null;
+  const AUTO_HIDE_DELAY = 3000;
 
-tabManager.registerPanel('settings', settingsPanel, {
-  dragHandle: settingsDragHandle,
-  collapseButton: settingsCollapseBtn,
-  contentWrapper: settingsContent,
-  detachGrip: document.getElementById('settings-detach-grip') as HTMLDivElement,
-  startCollapsed: true,
-});
+  function hideUI(): void {
+    document.body.classList.add('panels-auto-hide');
+  }
 
-tabManager.registerPanel('entity', entityPanel, {
-  dragHandle: entityDragHandle,
-  collapseButton: entityCollapseBtn,
-  contentWrapper: entityContent,
-  detachGrip: document.getElementById('entity-detach-grip') as HTMLDivElement,
-  startCollapsed: true,
-});
+  function showUI(): void {
+    document.body.classList.remove('panels-auto-hide');
+  }
 
-tabManager.registerPanel('effects', effectsPanel, {
-  dragHandle: effectsDragHandle,
-  collapseButton: effectsCollapseBtn,
-  contentWrapper: effectsContent,
-  detachGrip: document.getElementById('effects-detach-grip') as HTMLDivElement,
-  startCollapsed: true,
-});
+  function resetHideTimer(): void {
+    showUI();
+    if (hideTimeout) clearTimeout(hideTimeout);
+    hideTimeout = setTimeout(hideUI, AUTO_HIDE_DELAY);
+  }
 
-tabManager.registerPanel('input', inputPanel, {
-  dragHandle: inputDragHandle,
-  collapseButton: inputCollapseBtn,
-  contentWrapper: inputContent,
-  detachGrip: document.getElementById('input-detach-grip') as HTMLDivElement,
-  startCollapsed: true,
-});
+  // Start hidden
+  hideUI();
 
-requestAnimationFrame(() => {
-  // Order: OBS Connection, Settings, Input Detection, Entity Management, Effects
-  // positionPanelsFromRight takes them in reverse order (rightmost first)
-  tabManager.positionPanelsFromRight(['effects', 'entity', 'input', 'settings', 'connection']);
-  tabManager.createSnapChain(['connection', 'settings', 'input', 'entity', 'effects']);
-});
+  // Show on browser interaction (not WebSocket data)
+  document.addEventListener('mousemove', resetHideTimer);
+  document.addEventListener('mousedown', resetHideTimer);
+  document.addEventListener('keydown', resetHideTimer);
+}
+
+// Hide all panels and stats completely if URL param is 'hidden'
+if (hidePanels) {
+  [connectionPanel, settingsPanel, entityPanel, effectsPanel, inputPanel].forEach(panel => {
+    panel.style.display = 'none';
+  });
+  statsEl.style.display = 'none';
+}
+
+// Initialize TabManager (only if panels are visible)
+if (!hidePanels) {
+  const tabManager = new TabManager({
+    snapThreshold: 50,
+    panelGap: 0,
+    panelMargin: 16,
+    anchorThreshold: 80,
+    defaultPanelWidth: 300,
+    initializeDefaultAnchors: true,
+    classPrefix: 'blork-tabs',
+  });
+
+  tabManager.registerPanel('connection', connectionPanel, {
+    dragHandle: connectionDragHandle,
+    collapseButton: connectionCollapseBtn,
+    contentWrapper: connectionContent,
+    detachGrip: document.getElementById('connection-detach-grip') as HTMLDivElement,
+    startCollapsed: false,
+  });
+
+  tabManager.registerPanel('settings', settingsPanel, {
+    dragHandle: settingsDragHandle,
+    collapseButton: settingsCollapseBtn,
+    contentWrapper: settingsContent,
+    detachGrip: document.getElementById('settings-detach-grip') as HTMLDivElement,
+    startCollapsed: true,
+  });
+
+  tabManager.registerPanel('entity', entityPanel, {
+    dragHandle: entityDragHandle,
+    collapseButton: entityCollapseBtn,
+    contentWrapper: entityContent,
+    detachGrip: document.getElementById('entity-detach-grip') as HTMLDivElement,
+    startCollapsed: true,
+  });
+
+  tabManager.registerPanel('effects', effectsPanel, {
+    dragHandle: effectsDragHandle,
+    collapseButton: effectsCollapseBtn,
+    contentWrapper: effectsContent,
+    detachGrip: document.getElementById('effects-detach-grip') as HTMLDivElement,
+    startCollapsed: true,
+  });
+
+  tabManager.registerPanel('input', inputPanel, {
+    dragHandle: inputDragHandle,
+    collapseButton: inputCollapseBtn,
+    contentWrapper: inputContent,
+    detachGrip: document.getElementById('input-detach-grip') as HTMLDivElement,
+    startCollapsed: true,
+  });
+
+  requestAnimationFrame(() => {
+    // Order: OBS Connection, Settings, Input Detection, Entity Management, Effects
+    // positionPanelsFromRight takes them in reverse order (rightmost first)
+    tabManager.positionPanelsFromRight(['effects', 'entity', 'input', 'settings', 'connection']);
+    tabManager.createSnapChain(['connection', 'settings', 'input', 'entity', 'effects']);
+  });
+}
 
 // Initialize scene
 const size = getContainerSize();
