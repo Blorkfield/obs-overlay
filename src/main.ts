@@ -110,15 +110,39 @@ function logEvent(eventName: string, data?: Record<string, unknown>): void {
   const entry = document.createElement('div');
   entry.className = 'event-log-entry';
 
-  const dataStr = data ? `: ${JSON.stringify(data)}` : '';
+  const dataStr = data ? ` ${JSON.stringify(data)}` : '';
   entry.innerHTML = `<span class="event-name">${eventName}</span><span class="event-data">${dataStr}</span>`;
 
   eventLog.appendChild(entry);
   eventLog.scrollTop = eventLog.scrollHeight;
 
-  // Limit log entries (keep title + 50 entries)
+  // Limit log entries
   while (eventLog.children.length > 50) {
     eventLog.removeChild(eventLog.children[0]);
+  }
+}
+
+// Log click with entity positions
+function logClickWithEntities(source: string, clickX: number, clickY: number, rawX?: number, rawY?: number): void {
+  // Log the click coordinates
+  const clickData: Record<string, unknown> = { clickX, clickY };
+  if (rawX !== undefined && rawY !== undefined) {
+    clickData.rawX = rawX;
+    clickData.rawY = rawY;
+  }
+  logEvent(`${source}:click`, clickData);
+
+  // Log positions of all grabable entities
+  if (scene) {
+    const grabables = scene.getObjectsByTag('grabable');
+    if (grabables.length > 0) {
+      for (const obj of grabables) {
+        const dx = Math.round(obj.x - clickX);
+        const dy = Math.round(obj.y - clickY);
+        const dist = Math.round(Math.sqrt(dx * dx + dy * dy));
+        logEvent(`  entity`, { id: obj.id.slice(0, 8), x: Math.round(obj.x), y: Math.round(obj.y), dist });
+      }
+    }
   }
 }
 
@@ -160,7 +184,7 @@ function connectMouseWebSocket(): void {
       if (data.type === 'mouse' || data.type === 'move') {
         // Mouse position update from OBS script - transform to canvas space
         const { x, y } = transformMouseCoordinates(data.x, data.y);
-        scene?.setMousePosition(x, y);
+        scene?.setFollowTarget('mouse', x, y);
         scene?.setFollowTarget('absolute', x, y);
         obsClient.updateMousePosition(x, y);
         mousePosition.textContent = `X: ${Math.round(x)}, Y: ${Math.round(y)}`;
@@ -178,15 +202,16 @@ function connectMouseWebSocket(): void {
         const pressed = data.pressed;
         const { x, y } = transformMouseCoordinates(data.x, data.y);
 
-        // For left button, use grab API (mouse position already set with offset above)
-        if (button === 'left') {
-          if (pressed) {
-            const grabbedId = scene?.startGrab();
-            logEvent('ws:grab:start', { x, y, grabbed: grabbedId ?? null });
-          } else {
-            scene?.endGrab();
-            logEvent('ws:grab:end', { x, y });
-          }
+        // Update mouse position to click coordinates (critical for grab detection)
+        scene?.setFollowTarget('mouse', x, y);
+
+        // For left button down, log click with entity positions and try to grab
+        if (button === 'left' && pressed) {
+          logClickWithEntities('ws', x, y, data.x, data.y);
+          const grabbedId = scene?.startGrab();
+          logEvent('ws:grab', { result: grabbedId ?? 'none' });
+        } else if (button === 'left' && !pressed) {
+          scene?.endGrab();
         }
 
         obsClient.setMouseButton(button, pressed);
@@ -255,7 +280,7 @@ async function createScene(width: number, height: number): Promise<void> {
     const rect = canvas.getBoundingClientRect();
     const x = Math.round(e.clientX - rect.left);
     const y = Math.round(e.clientY - rect.top);
-    scene.setMousePosition(x, y);
+    scene.setFollowTarget('mouse', x, y);
   });
 
   canvas.addEventListener('mousedown', (e) => {
@@ -265,10 +290,11 @@ async function createScene(width: number, height: number): Promise<void> {
     const x = Math.round(e.clientX - rect.left);
     const y = Math.round(e.clientY - rect.top);
 
-    // For left click, grab at current mouse position (no offset for direct interaction)
+    // For left click, log and grab at current mouse position (no offset for direct interaction)
     if (button === 'left') {
+      logClickWithEntities('canvas', x, y);
       const grabbedId = scene?.startGrab();
-      logEvent('canvas:grab:start', { x, y, grabbed: grabbedId ?? null });
+      logEvent('canvas:grab', { result: grabbedId ?? 'none' });
     }
 
     // Only update scene interaction, not the display (that comes from OBS script)
@@ -278,13 +304,9 @@ async function createScene(width: number, height: number): Promise<void> {
   canvas.addEventListener('mouseup', (e) => {
     if (!canvas) return;
     const button = e.button === 0 ? 'left' : e.button === 1 ? 'middle' : 'right';
-    const rect = canvas.getBoundingClientRect();
-    const x = Math.round(e.clientX - rect.left);
-    const y = Math.round(e.clientY - rect.top);
 
     if (button === 'left') {
       scene?.endGrab();
-      logEvent('canvas:grab:end', { x, y });
     }
 
     obsClient.setMouseButton(button, false);
