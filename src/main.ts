@@ -1,4 +1,4 @@
-import { OverlayScene, setLogLevel } from '@blorkfield/overlay-core';
+import { OverlayScene, setLogLevel, TAGS } from '@blorkfield/overlay-core';
 import { TabManager } from '@blorkfield/blork-tabs';
 import '@blorkfield/blork-tabs/styles.css';
 import { OBSClient } from './obs/index.js';
@@ -185,7 +185,7 @@ function connectMouseWebSocket(): void {
         // Mouse position update from OBS script - transform to canvas space
         const { x, y } = transformMouseCoordinates(data.x, data.y);
         scene?.setFollowTarget('mouse', x, y);
-        scene?.setFollowTarget('absolute', x, y);
+        scene?.setFollowTarget('offset', x, y);
         obsClient.updateMousePosition(x, y);
         mousePosition.textContent = `X: ${Math.round(x)}, Y: ${Math.round(y)}`;
 
@@ -227,7 +227,7 @@ function connectMouseWebSocket(): void {
 connectMouseWebSocket();
 
 // Tag state
-const spawnableTags = ['falling', 'follow', 'follow-absolute', 'grabable'];
+const spawnableTags = [TAGS.FALLING, TAGS.FOLLOW_WINDOW, 'follow-offset', TAGS.GRABABLE];
 let selectedSpawnTags: string[] = [];
 
 function getContainerSize(): { width: number; height: number } {
