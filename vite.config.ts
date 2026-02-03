@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { overlayFontsPlugin } from '@blorkfield/overlay-core/vite';
 import type { WebSocketServer } from 'ws';
 
 // WebSocket handling for mouse data (shared between dev and prod)
@@ -50,6 +51,7 @@ export default defineConfig({
     sourcemap: true
   },
   plugins: [
+    overlayFontsPlugin(),
     {
       name: 'mouse-websocket',
       configureServer(server) {
