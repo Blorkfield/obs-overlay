@@ -706,6 +706,11 @@ if (!hidePanels && !showPanels) {
   const AUTO_HIDE_DELAY = 3000;
 
   function hideUI(): void {
+    // Close any open dropdowns/focused elements before fading
+    // This prevents floating submenus when the UI hides
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     document.body.classList.add('panels-auto-hide');
   }
 
