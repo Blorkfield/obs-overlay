@@ -1,5 +1,11 @@
 # @blorkfield/obs-overlay
 
+## 0.3.1
+
+### Patch Changes
+
+- deb8983: refactor: follow absolute
+
 ## 0.3.0
 
 ### Minor Changes
