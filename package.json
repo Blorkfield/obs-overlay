@@ -12,8 +12,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@blorkfield/blork-tabs": "^0.2.6",
-    "@blorkfield/overlay-core": "^0.8.7",
+    "@blorkfield/blork-tabs": "^0.3.1",
+    "@blorkfield/overlay-core": "^0.8.9",
     "express": "^4.22.1",
     "obs-websocket-js": "^5.0.7",
     "ws": "^8.19.0"

@@ -1,4 +1,4 @@
-import { OverlayScene, setLogLevel } from '@blorkfield/overlay-core';
+import { OverlayScene, setLogLevel, TAGS } from '@blorkfield/overlay-core';
 import { TabManager } from '@blorkfield/blork-tabs';
 import '@blorkfield/blork-tabs/styles.css';
 import { OBSClient } from './obs/index.js';
@@ -68,7 +68,7 @@ const mouseMiddle = document.getElementById('mouse-middle') as HTMLSpanElement;
 const obsScene = document.getElementById('obs-scene') as HTMLSpanElement;
 const obsStream = document.getElementById('obs-stream') as HTMLSpanElement;
 const obsRecording = document.getElementById('obs-recording') as HTMLSpanElement;
-const eventLog = document.getElementById('event-log') as HTMLDivElement;
+const eventLogContainer = document.getElementById('event-log-container') as HTMLDivElement;
 
 // Panel elements
 const connectionPanel = document.getElementById('connection-panel') as HTMLDivElement;
@@ -103,34 +103,20 @@ let canvas: HTMLCanvasElement | null = null;
 // Mouse WebSocket state
 let mouseWs: WebSocket | null = null;
 
-// Event logging
-function logEvent(eventName: string, data?: Record<string, unknown>): void {
-  if (!eventLog) return;
-
-  const entry = document.createElement('div');
-  entry.className = 'event-log-entry';
-
-  const dataStr = data ? ` ${JSON.stringify(data)}` : '';
-  entry.innerHTML = `<span class="event-name">${eventName}</span><span class="event-data">${dataStr}</span>`;
-
-  eventLog.appendChild(entry);
-  eventLog.scrollTop = eventLog.scrollHeight;
-
-  // Limit log entries
-  while (eventLog.children.length > 50) {
-    eventLog.removeChild(eventLog.children[0]);
-  }
-}
+// Debug log (initialized later with TabManager)
+let debugLog: ReturnType<typeof TabManager.prototype.createDebugLog> | null = null;
 
 // Log click with entity positions
 function logClickWithEntities(source: string, clickX: number, clickY: number, rawX?: number, rawY?: number): void {
+  if (!debugLog) return;
+
   // Log the click coordinates
   const clickData: Record<string, unknown> = { clickX, clickY };
   if (rawX !== undefined && rawY !== undefined) {
     clickData.rawX = rawX;
     clickData.rawY = rawY;
   }
-  logEvent(`${source}:click`, clickData);
+  debugLog.log(`${source}:click`, clickData);
 
   // Log positions of all grabable entities
   if (scene) {
@@ -140,7 +126,7 @@ function logClickWithEntities(source: string, clickX: number, clickY: number, ra
         const dx = Math.round(obj.x - clickX);
         const dy = Math.round(obj.y - clickY);
         const dist = Math.round(Math.sqrt(dx * dx + dy * dy));
-        logEvent(`  entity`, { id: obj.id.slice(0, 8), x: Math.round(obj.x), y: Math.round(obj.y), dist });
+        debugLog.log(`  entity`, { id: obj.id.slice(0, 8), x: Math.round(obj.x), y: Math.round(obj.y), dist });
       }
     }
   }
@@ -185,7 +171,7 @@ function connectMouseWebSocket(): void {
         // Mouse position update from OBS script - transform to canvas space
         const { x, y } = transformMouseCoordinates(data.x, data.y);
         scene?.setFollowTarget('mouse', x, y);
-        scene?.setFollowTarget('absolute', x, y);
+        scene?.setFollowTarget('offset', x, y);
         obsClient.updateMousePosition(x, y);
         mousePosition.textContent = `X: ${Math.round(x)}, Y: ${Math.round(y)}`;
 
@@ -209,7 +195,7 @@ function connectMouseWebSocket(): void {
         if (button === 'left' && pressed) {
           logClickWithEntities('ws', x, y, data.x, data.y);
           const grabbedId = scene?.startGrab();
-          logEvent('ws:grab', { result: grabbedId ?? 'none' });
+          debugLog?.log('ws:grab', { result: grabbedId ?? 'none' });
         } else if (button === 'left' && !pressed) {
           scene?.endGrab();
         }
@@ -227,7 +213,7 @@ function connectMouseWebSocket(): void {
 connectMouseWebSocket();
 
 // Tag state
-const spawnableTags = ['falling', 'follow', 'follow-absolute', 'grabable'];
+const spawnableTags = [TAGS.FALLING, TAGS.FOLLOW_WINDOW, 'follow-offset', TAGS.GRABABLE];
 let selectedSpawnTags: string[] = [];
 
 function getContainerSize(): { width: number; height: number } {
@@ -294,7 +280,7 @@ async function createScene(width: number, height: number): Promise<void> {
     if (button === 'left') {
       logClickWithEntities('canvas', x, y);
       const grabbedId = scene?.startGrab();
-      logEvent('canvas:grab', { result: grabbedId ?? 'none' });
+      debugLog?.log('canvas:grab', { result: grabbedId ?? 'none' });
     }
 
     // Only update scene interaction, not the display (that comes from OBS script)
@@ -700,34 +686,6 @@ const panelsParam = urlParams.get('panels');
 const hidePanels = panelsParam === 'hidden';
 const showPanels = panelsParam === 'visible'; // Force always visible
 
-// Auto-hide panels logic (default behavior, disable with ?panels=visible)
-if (!hidePanels && !showPanels) {
-  let hideTimeout: ReturnType<typeof setTimeout> | null = null;
-  const AUTO_HIDE_DELAY = 3000;
-
-  function hideUI(): void {
-    document.body.classList.add('panels-auto-hide');
-  }
-
-  function showUI(): void {
-    document.body.classList.remove('panels-auto-hide');
-  }
-
-  function resetHideTimer(): void {
-    showUI();
-    if (hideTimeout) clearTimeout(hideTimeout);
-    hideTimeout = setTimeout(hideUI, AUTO_HIDE_DELAY);
-  }
-
-  // Start hidden
-  hideUI();
-
-  // Show on browser interaction (not WebSocket data)
-  document.addEventListener('mousemove', resetHideTimer);
-  document.addEventListener('mousedown', resetHideTimer);
-  document.addEventListener('keydown', resetHideTimer);
-}
-
 // Hide all panels and stats completely if URL param is 'hidden'
 if (hidePanels) {
   [connectionPanel, settingsPanel, entityPanel, effectsPanel, inputPanel].forEach(panel => {
@@ -746,6 +704,9 @@ if (!hidePanels) {
     defaultPanelWidth: 300,
     initializeDefaultAnchors: true,
     classPrefix: 'blork-tabs',
+    // Auto-hide after 5 seconds unless ?panels=visible
+    startHidden: !showPanels,
+    autoHideDelay: showPanels ? undefined : 5000,
   });
 
   tabManager.registerPanel('connection', connectionPanel, {
@@ -786,6 +747,13 @@ if (!hidePanels) {
     contentWrapper: inputContent,
     detachGrip: document.getElementById('input-detach-grip') as HTMLDivElement,
     startCollapsed: true,
+  });
+
+  // Create embedded debug log with 3 second hover to enlarge
+  debugLog = tabManager.createDebugLog(eventLogContainer, {
+    maxEntries: 50,
+    showTimestamps: true,
+    hoverDelay: 3000,
   });
 
   requestAnimationFrame(() => {

@@ -4,14 +4,15 @@ Physics-based streaming overlay with OBS Studio integration. Built on [@blorkfie
 
 ## Features
 
-- Physics simulation with Matter.js (gravity, collisions, pressure collapse)
-- OBS WebSocket integration (scene changes, stream/recording status)
-- Real-time mouse tracking (system-wide via OBS script)
-- Mouse button state detection (left, right, middle, hold detection)
-- Entity spawning with customizable tags and properties
-- Text obstacles with TTF font support
-- Configurable effects (burst, rain, stream)
-- Draggable/collapsible panel UI via [@blorkfield/blork-tabs](https://github.com/Blorkfield/blork-tabs)
+- **Physics simulation** - Matter.js powered gravity, collisions, and pressure collapse
+- **OBS integration** - WebSocket connection for scene changes, stream/recording status
+- **Mouse tracking** - System-wide mouse capture via OBS script (position and button states)
+- **Entity system** - Spawn physics objects with customizable images, tags, TTL, and weight
+- **Text obstacles** - Add text as physical obstacles with TTF font support
+- **Effects** - Configurable burst, rain, and stream particle effects
+- **Grabbing** - Click and drag entities around the scene
+- **Panel UI** - Draggable, collapsible, auto-hiding panels via [@blorkfield/blork-tabs](https://github.com/Blorkfield/blork-tabs)
+- **Event debugging** - Embedded event log with hover-to-enlarge for easy debugging in OBS
 
 ## Quick Start
 
@@ -41,7 +42,7 @@ Overlay runs at http://localhost:5173 (dev) or http://localhost:80 (production)
 3. Set dimensions to match your canvas (e.g., 1920x1080)
 4. Enable transparency if desired
 
-> **Tip:** Use `?panels=hidden` in the OBS browser source URL to hide the control panels in your stream. To configure the overlay, either remove the parameter temporarily or open the URL without it in a regular browser window.
+> **Tip:** Use `?panels=hidden` in the OBS browser source URL to hide the control panels in your stream. To configure the overlay, open `http://localhost:5173?panels=visible` in a regular browser window to keep panels always visible while adjusting settings.
 
 ### 2. WebSocket Connection
 
@@ -118,13 +119,19 @@ Mouse data flows from the OBS script (running inside OBS) through WebSocket to t
 
 ## Panels
 
+All panels auto-hide after 5 seconds of inactivity and reappear on mouse/keyboard activity. This keeps the overlay clean during streams while remaining accessible for configuration.
+
 | Panel | Description |
 |-------|-------------|
-| OBS Connection | Connect to OBS WebSocket server |
-| Settings | Debug mode, log level, background color |
-| Input Detection | Live display of mouse position, button states, OBS events |
-| Entity Management | Spawn entities and text obstacles, manage tags |
-| Effects | Configure burst, rain, and stream effects |
+| **OBS Connection** | Connect to OBS WebSocket server |
+| **Settings** | Debug mode, log level, background color, mouse capture offset/scale |
+| **Entity Management** | Spawn entities and text obstacles, manage tags |
+| **Effects** | Configure burst, rain, and stream effects |
+| **Event Detection** | Live mouse position, button states, OBS events, and event log |
+
+### Event Log
+
+The Event Detection panel includes an embedded event log for debugging click/grab events. Hover over the log for 3 seconds to enlarge it to 75% of the screen for easier reading—useful when debugging in OBS browser sources without console access.
 
 ## Configuration
 
@@ -134,9 +141,24 @@ Settings persist to browser localStorage. When used as an OBS Browser Source, co
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| `panels` | `hidden` | Hides all control panels (use for OBS browser source) |
+| `panels` | `hidden` | Completely hides all panels and stats (use for OBS browser source) |
+| `panels` | `visible` | Disables auto-hide, keeps panels always visible |
 
-**Example:** `http://localhost:5173?panels=hidden`
+**Examples:**
+- `http://localhost:5173?panels=hidden` — Production/streaming (no UI)
+- `http://localhost:5173?panels=visible` — Configuration (panels always visible)
+- `http://localhost:5173` — Default (panels auto-hide after 5 seconds)
+
+### Mouse Capture Calibration
+
+If mouse coordinates from the OBS script don't align with your overlay (e.g., multi-monitor setups, scaled displays), use the **Mouse Capture Offset** settings:
+
+| Setting | Description |
+|---------|-------------|
+| **Offset X/Y** | Pixel offset to subtract from raw coordinates |
+| **Scale X/Y** | Multiplier for coordinate scaling (default: 1.0) |
+
+The transformation applied is: `canvas_pos = (raw_pos - offset) * scale`
 
 ## Development
 
