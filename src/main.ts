@@ -749,6 +749,19 @@ if (!hidePanels) {
     startCollapsed: true,
   });
 
+  // Sync stats visibility with tab panel visibility
+  if (!showPanels) {
+    statsEl.style.display = 'none';
+  }
+  tabManager.on('panel:show', () => {
+    statsEl.style.display = '';
+  });
+  tabManager.on('panel:hide', () => {
+    if (tabManager.getAllPanels().every(p => p.isHidden)) {
+      statsEl.style.display = 'none';
+    }
+  });
+
   // Create embedded debug log with 3 second hover to enlarge
   debugLog = tabManager.createDebugLog(eventLogContainer, {
     maxEntries: 50,
