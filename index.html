@@ -585,14 +585,22 @@
       <button class="blork-tabs-collapse-btn" id="effects-collapse">+</button>
     </div>
     <div class="blork-tabs-content blork-tabs-content-collapsed" id="effects-content">
+
+      <!-- Active Effects -->
+      <div class="effect-section">
+        <div class="effect-header" style="margin-bottom:8px">
+          <span class="effect-title">Active</span>
+          <button id="btn-stop-all-effects" class="panel-btn panel-btn-danger" style="font-size:11px;padding:4px 8px">Stop All</button>
+        </div>
+        <div id="active-effects-list">
+          <div class="empty-message">No active effects</div>
+        </div>
+      </div>
+
       <!-- Burst Effect -->
       <div class="effect-section">
-        <div class="effect-header">
-          <label class="toggle-switch">
-            <input type="checkbox" id="checkbox-burst">
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="effect-title">Burst Effect</span>
+        <div class="effect-header" style="margin-bottom:8px">
+          <span class="effect-title">Burst</span>
         </div>
         <div class="effect-params">
           <div class="param-row">
@@ -615,16 +623,13 @@
           </div>
           <div class="entity-list" id="burst-entity-list"></div>
         </div>
+        <button id="btn-create-burst" class="panel-btn panel-btn-success" style="width:100%;margin-top:12px">Create</button>
       </div>
 
       <!-- Rain Effect -->
       <div class="effect-section">
-        <div class="effect-header">
-          <label class="toggle-switch">
-            <input type="checkbox" id="checkbox-rain">
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="effect-title">Rain Effect</span>
+        <div class="effect-header" style="margin-bottom:8px">
+          <span class="effect-title">Rain</span>
         </div>
         <div class="effect-params">
           <div class="param-row">
@@ -643,16 +648,13 @@
           </div>
           <div class="entity-list" id="rain-entity-list"></div>
         </div>
+        <button id="btn-create-rain" class="panel-btn panel-btn-success" style="width:100%;margin-top:12px">Create</button>
       </div>
 
       <!-- Stream Effect -->
       <div class="effect-section">
-        <div class="effect-header">
-          <label class="toggle-switch">
-            <input type="checkbox" id="checkbox-stream">
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="effect-title">Stream Effect</span>
+        <div class="effect-header" style="margin-bottom:8px">
+          <span class="effect-title">Stream</span>
         </div>
         <div class="effect-params">
           <div class="param-row">
@@ -687,6 +689,7 @@
           </div>
           <div class="entity-list" id="stream-entity-list"></div>
         </div>
+        <button id="btn-create-stream" class="panel-btn panel-btn-success" style="width:100%;margin-top:12px">Create</button>
       </div>
     </div>
   </div>

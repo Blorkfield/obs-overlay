@@ -1,4 +1,4 @@
-import { OverlayScene, setLogLevel, TAGS } from '@blorkfield/overlay-core';
+import { OverlayScene, setLogLevel, TAGS, type EffectObjectConfig } from '@blorkfield/overlay-core';
 import { TabManager } from '@blorkfield/blork-tabs';
 import '@blorkfield/blork-tabs/styles.css';
 import { OBSClient } from './obs/index.js';
@@ -105,6 +105,16 @@ const effectsPanel = document.getElementById('effects-panel') as HTMLDivElement;
 const effectsDragHandle = document.getElementById('effects-drag-handle') as HTMLDivElement;
 const effectsCollapseBtn = document.getElementById('effects-collapse') as HTMLButtonElement;
 const effectsContent = document.getElementById('effects-content') as HTMLDivElement;
+
+// Effects panel elements
+const activeEffectsList = document.getElementById('active-effects-list') as HTMLDivElement;
+const btnStopAllEffects = document.getElementById('btn-stop-all-effects') as HTMLButtonElement;
+const btnCreateBurst = document.getElementById('btn-create-burst') as HTMLButtonElement;
+const btnCreateRain = document.getElementById('btn-create-rain') as HTMLButtonElement;
+const btnCreateStream = document.getElementById('btn-create-stream') as HTMLButtonElement;
+const burstEntityList = document.getElementById('burst-entity-list') as HTMLDivElement;
+const rainEntityList = document.getElementById('rain-entity-list') as HTMLDivElement;
+const streamEntityList = document.getElementById('stream-entity-list') as HTMLDivElement;
 
 const inputPanel = document.getElementById('input-panel') as HTMLDivElement;
 const inputDragHandle = document.getElementById('input-drag-handle') as HTMLDivElement;
@@ -407,6 +417,164 @@ function moveTagsToAvailable(): void {
 
 btnTagAdd.addEventListener('click', moveTagsToSelected);
 btnTagRemove.addEventListener('click', moveTagsToAvailable);
+
+// === Effect System ===
+
+const EFFECT_COLORS = ['#e94560', '#4a90d9', '#4ae945', '#d9904a', '#9a4ad9'];
+const effectCounters: Record<string, number> = {};
+
+function nextEffectId(type: string): string {
+  effectCounters[type] = (effectCounters[type] ?? 0) + 1;
+  return `${type}-${effectCounters[type]}`;
+}
+
+function randomEffectColor(): string {
+  return EFFECT_COLORS[Math.floor(Math.random() * EFFECT_COLORS.length)];
+}
+
+function addEntityRow(listEl: HTMLElement): void {
+  const row = document.createElement('div');
+  row.className = 'entity-item';
+  row.innerHTML = `
+    <div class="entity-row entity-row-header">
+      <span style="font-size:11px;color:#888;flex:1">Entity Type</span>
+      <button class="remove-btn">✕</button>
+    </div>
+    <div class="entity-row">
+      <label>Image:</label>
+      <input type="text" placeholder="URL or blank" style="flex:1;min-width:0;font-size:11px">
+    </div>
+    <div class="entity-row">
+      <label>Radius:</label>
+      <input type="number" value="20" min="5" max="100" style="width:50px">
+    </div>
+  `;
+  (row.querySelector('.remove-btn') as HTMLButtonElement).addEventListener('click', () => row.remove());
+  listEl.appendChild(row);
+}
+
+function getEntityConfigs(listEl: HTMLElement): EffectObjectConfig[] {
+  const rows = Array.from(listEl.querySelectorAll<HTMLElement>('.entity-item'));
+  if (rows.length === 0) {
+    return [{
+      objectConfig: { fillStyle: randomEffectColor(), tags: [TAGS.FALLING] },
+      probability: 1,
+      minScale: 0.8,
+      maxScale: 1.3,
+      baseRadius: 20,
+    }];
+  }
+  return rows.map(row => {
+    const inputs = row.querySelectorAll<HTMLInputElement>('input');
+    const imageUrl = inputs[0].value.trim();
+    const radius = parseInt(inputs[1].value) || 20;
+    return {
+      objectConfig: {
+        fillStyle: randomEffectColor(),
+        imageUrl: imageUrl || undefined,
+        tags: [TAGS.FALLING],
+      },
+      probability: 1,
+      minScale: 0.8,
+      maxScale: 1.3,
+      baseRadius: radius,
+    };
+  });
+}
+
+function renderActiveEffects(): void {
+  const ids = scene?.getEffectIds() ?? [];
+  if (ids.length === 0) {
+    activeEffectsList.innerHTML = '<div class="empty-message">No active effects</div>';
+    return;
+  }
+  activeEffectsList.innerHTML = '';
+  for (const id of ids) {
+    const effect = scene?.getEffect(id);
+    if (!effect) continue;
+    const typeLabel = effect.type.charAt(0).toUpperCase() + effect.type.slice(1);
+    const item = document.createElement('div');
+    item.className = 'entity-item';
+    item.style.marginBottom = '4px';
+    item.innerHTML = `
+      <div class="entity-row entity-row-header" style="margin-bottom:0">
+        <span style="flex:1;font-size:12px">${typeLabel}</span>
+        <span style="font-size:10px;color:#555;margin-right:6px">${id}</span>
+        <button class="remove-btn">Stop</button>
+      </div>
+    `;
+    (item.querySelector('.remove-btn') as HTMLButtonElement).addEventListener('click', () => {
+      scene?.removeEffect(id);
+      renderActiveEffects();
+    });
+    activeEffectsList.appendChild(item);
+  }
+}
+
+function getInputVal(id: string, fallback: number): number {
+  return parseFloat((document.getElementById(id) as HTMLInputElement).value) || fallback;
+}
+
+function createBurstEffect(): void {
+  if (!scene) return;
+  scene.setEffect({
+    id: nextEffectId('burst'),
+    type: 'burst',
+    enabled: true,
+    burstInterval: getInputVal('burst-interval', 2000),
+    burstCount: getInputVal('burst-count', 8),
+    burstForce: getInputVal('burst-force', 15),
+    objectConfigs: getEntityConfigs(burstEntityList),
+  });
+  renderActiveEffects();
+}
+
+function createRainEffect(): void {
+  if (!scene) return;
+  scene.setEffect({
+    id: nextEffectId('rain'),
+    type: 'rain',
+    enabled: true,
+    spawnRate: getInputVal('rain-spawn-rate', 5),
+    spawnWidth: getInputVal('rain-spawn-width', 1),
+    objectConfigs: getEntityConfigs(rainEntityList),
+  });
+  renderActiveEffects();
+}
+
+function createStreamEffect(): void {
+  if (!scene || !canvas) return;
+  const dirRad = getInputVal('stream-direction', 90) * Math.PI / 180;
+  scene.setEffect({
+    id: nextEffectId('stream'),
+    type: 'stream',
+    enabled: true,
+    origin: {
+      x: (getInputVal('stream-origin-x', 50) / 100) * canvas.width,
+      y: (getInputVal('stream-origin-y', 0) / 100) * canvas.height,
+    },
+    direction: { x: Math.cos(dirRad), y: Math.sin(dirRad) },
+    spawnRate: getInputVal('stream-spawn-rate', 10),
+    force: getInputVal('stream-force', 15),
+    coneAngle: getInputVal('stream-cone-angle', 15) * Math.PI / 180,
+    objectConfigs: getEntityConfigs(streamEntityList),
+  });
+  renderActiveEffects();
+}
+
+function stopAllEffects(): void {
+  scene?.getEffectIds().forEach(id => scene?.removeEffect(id));
+  renderActiveEffects();
+}
+
+// Effects event listeners
+btnCreateBurst.addEventListener('click', createBurstEffect);
+btnCreateRain.addEventListener('click', createRainEffect);
+btnCreateStream.addEventListener('click', createStreamEffect);
+btnStopAllEffects.addEventListener('click', stopAllEffects);
+document.getElementById('burst-add-entity')!.addEventListener('click', () => addEntityRow(burstEntityList));
+document.getElementById('rain-add-entity')!.addEventListener('click', () => addEntityRow(rainEntityList));
+document.getElementById('stream-add-entity')!.addEventListener('click', () => addEntityRow(streamEntityList));
 
 // Entity spawning
 async function spawnRandomEntity(): Promise<void> {
