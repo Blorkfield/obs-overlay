@@ -13,7 +13,10 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@blorkfield/twitch-integration": ["../twitch-integration/src/index.ts"]
+    }
   },
   "include": ["src"]
 }

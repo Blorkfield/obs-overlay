@@ -3,6 +3,8 @@ import { TabManager } from '@blorkfield/blork-tabs';
 import '@blorkfield/blork-tabs/styles.css';
 import { OBSClient } from './obs/index.js';
 import { loadConfig, saveConfig } from './config.js';
+import { TwitchChat } from '@blorkfield/twitch-integration';
+import type { NormalizedMessage } from '@blorkfield/twitch-integration';
 
 // Load config
 let config = loadConfig();
@@ -69,6 +71,19 @@ const obsScene = document.getElementById('obs-scene') as HTMLSpanElement;
 const obsStream = document.getElementById('obs-stream') as HTMLSpanElement;
 const obsRecording = document.getElementById('obs-recording') as HTMLSpanElement;
 const eventLogContainer = document.getElementById('event-log-container') as HTMLDivElement;
+const chatLogContainer = document.getElementById('chat-log-container') as HTMLDivElement;
+const lookupIdInput = document.getElementById('lookup-id') as HTMLInputElement;
+const btnLookup = document.getElementById('btn-lookup') as HTMLButtonElement;
+const lookupResult = document.getElementById('lookup-result') as HTMLDivElement;
+
+// Twitch connection panel elements
+const inputTwitchChannelId = document.getElementById('input-twitch-channel-id') as HTMLInputElement;
+const inputTwitchUserId = document.getElementById('input-twitch-user-id') as HTMLInputElement;
+const inputTwitchClientId = document.getElementById('input-twitch-client-id') as HTMLInputElement;
+const inputTwitchAccessToken = document.getElementById('input-twitch-access-token') as HTMLInputElement;
+const btnTwitchConnect = document.getElementById('btn-twitch-connect') as HTMLButtonElement;
+const btnTwitchDisconnect = document.getElementById('btn-twitch-disconnect') as HTMLButtonElement;
+const twitchConnectionStatus = document.getElementById('twitch-connection-status') as HTMLSpanElement;
 
 // Panel elements
 const connectionPanel = document.getElementById('connection-panel') as HTMLDivElement;
@@ -105,6 +120,10 @@ let mouseWs: WebSocket | null = null;
 
 // Debug log (initialized later with TabManager)
 let debugLog: ReturnType<typeof TabManager.prototype.createDebugLog> | null = null;
+
+// Twitch state
+let twitchChat: TwitchChat | null = null;
+let chatDebugLog: ReturnType<typeof TabManager.prototype.createDebugLog> | null = null;
 
 // Log click with entity positions
 function logClickWithEntities(source: string, clickX: number, clickY: number, rawX?: number, rawY?: number): void {
@@ -537,6 +556,102 @@ async function disconnectFromOBS(): Promise<void> {
   await obsClient.disconnect();
 }
 
+// Twitch Connection handlers
+function updateTwitchUI(state: 'connected' | 'disconnected' | 'connecting' | 'auth_error'): void {
+  const statusMap = {
+    connected: { text: 'Connected', color: '#4ae945' },
+    disconnected: { text: 'Disconnected', color: '#e94560' },
+    connecting: { text: 'Connecting...', color: '#d9904a' },
+    auth_error: { text: 'Auth Error', color: '#e94560' },
+  };
+  const { text, color } = statusMap[state];
+  twitchConnectionStatus.textContent = text;
+  twitchConnectionStatus.style.color = color;
+
+  const connected = state === 'connected';
+  const connecting = state === 'connecting';
+  btnTwitchConnect.disabled = connected || connecting;
+  btnTwitchDisconnect.disabled = !connected;
+  inputTwitchChannelId.disabled = connected || connecting;
+  inputTwitchUserId.disabled = connected || connecting;
+  inputTwitchClientId.disabled = connected || connecting;
+  inputTwitchAccessToken.disabled = connected || connecting;
+}
+
+async function connectToTwitch(): Promise<void> {
+  const channelId = inputTwitchChannelId.value.trim();
+  const userId = inputTwitchUserId.value.trim();
+  const clientId = inputTwitchClientId.value.trim();
+  const accessToken = inputTwitchAccessToken.value.trim();
+
+  if (!channelId || !userId || !clientId || !accessToken) {
+    alert('Please fill in all Twitch fields');
+    return;
+  }
+
+  updateTwitchUI('connecting');
+
+  const chat = new TwitchChat({ channelId, userId, clientId, accessToken });
+  twitchChat = chat;
+
+  chat.on('connected', () => {
+    updateTwitchUI('connected');
+    chatDebugLog?.log('twitch', { status: 'connected' });
+  });
+
+  chat.on('disconnected', (code: number, reason: string) => {
+    updateTwitchUI('disconnected');
+    chatDebugLog?.log('twitch', { status: 'disconnected', code, reason });
+    if (twitchChat === chat) twitchChat = null;
+  });
+
+  chat.on('message', (msg: NormalizedMessage) => {
+    const data: Record<string, unknown> = { text: msg.text };
+    if (msg.emotes.length > 0) data.emotes = msg.emotes.map((e: { name: string }) => e.name);
+    if (msg.cheer) data.bits = msg.cheer.bits;
+    if (msg.reply) data.reply_to = msg.reply.parentUserDisplayName;
+    chatDebugLog?.log(msg.user.displayName, data);
+  });
+
+  chat.on('auth_error', () => {
+    updateTwitchUI('auth_error');
+    chatDebugLog?.log('twitch', { status: 'auth_error' });
+    twitchChat = null;
+  });
+
+  chat.on('revoked', (reason: string) => {
+    updateTwitchUI('disconnected');
+    chatDebugLog?.log('twitch', { status: 'revoked', reason });
+    if (twitchChat === chat) twitchChat = null;
+  });
+
+  chat.on('error', (err: Error) => {
+    chatDebugLog?.log('twitch:error', { message: err.message });
+  });
+
+  try {
+    await chat.preloadEmotes();
+    await chat.connect();
+
+    config.twitch.channelId = channelId;
+    config.twitch.userId = userId;
+    config.twitch.clientId = clientId;
+    saveConfig(config);
+  } catch (err) {
+    console.error('Failed to connect to Twitch:', err);
+    updateTwitchUI('disconnected');
+    twitchChat = null;
+  }
+}
+
+function disconnectFromTwitch(): void {
+  if (!twitchChat) return;
+  twitchChat.removeAllListeners();
+  twitchChat.disconnect();
+  twitchChat = null;
+  updateTwitchUI('disconnected');
+}
+
 // OBS event listeners
 obsClient.on('connected', async () => {
   updateConnectionUI(true);
@@ -642,6 +757,28 @@ async function applyBackgroundColor(): Promise<void> {
 // Event listeners
 btnConnect.addEventListener('click', connectToOBS);
 btnDisconnect.addEventListener('click', disconnectFromOBS);
+btnTwitchConnect.addEventListener('click', connectToTwitch);
+btnTwitchDisconnect.addEventListener('click', disconnectFromTwitch);
+
+btnLookup.addEventListener('click', async () => {
+  const uid = lookupIdInput.value.trim();
+  if (!uid) return;
+  if (!twitchChat) {
+    lookupResult.textContent = 'Not connected to Twitch';
+    return;
+  }
+  lookupResult.textContent = 'Looking up...';
+  try {
+    const url = await twitchChat.getProfilePictureUrl(uid);
+    if (url) {
+      lookupResult.innerHTML = `<img src="${url}" style="width:48px;height:48px;border-radius:50%;vertical-align:middle;margin-right:8px"><span style="color:#fff">${uid}</span>`;
+    } else {
+      lookupResult.textContent = 'User not found';
+    }
+  } catch (err) {
+    lookupResult.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
+  }
+});
 checkboxDebug.addEventListener('change', updateSettings);
 selectLogLevel.addEventListener('change', updateSettings);
 btnBgTransparent.addEventListener('click', setTransparentBackground);
@@ -671,6 +808,9 @@ inputOffsetX.value = String(config.mouseCapture.offset.x);
 inputOffsetY.value = String(config.mouseCapture.offset.y);
 inputScaleX.value = String(config.mouseCapture.scale.x);
 inputScaleY.value = String(config.mouseCapture.scale.y);
+inputTwitchChannelId.value = config.twitch.channelId;
+inputTwitchUserId.value = config.twitch.userId;
+inputTwitchClientId.value = config.twitch.clientId;
 
 // Handle resize
 window.addEventListener('resize', () => {
@@ -765,6 +905,13 @@ if (!hidePanels) {
   // Create embedded debug log with 3 second hover to enlarge
   debugLog = tabManager.createDebugLog(eventLogContainer, {
     maxEntries: 50,
+    showTimestamps: true,
+    hoverDelay: 3000,
+  });
+
+  // Create chat debug log
+  chatDebugLog = tabManager.createDebugLog(chatLogContainer, {
+    maxEntries: 200,
     showTimestamps: true,
     hoverDelay: 3000,
   });

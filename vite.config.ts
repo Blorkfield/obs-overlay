@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import { overlayFontsPlugin } from '@blorkfield/overlay-core/vite';
+import { resolve } from 'path';
 import type { WebSocketServer } from 'ws';
 
 // WebSocket handling for mouse data (shared between dev and prod)
@@ -41,6 +42,11 @@ function setupMouseWebSocket(wss: WebSocketServer) {
 }
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@blorkfield/twitch-integration': resolve(__dirname, '../twitch-integration/src/index.ts'),
+    },
+  },
   server: {
     port: 5173,
     strictPort: true,
