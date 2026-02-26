@@ -844,9 +844,8 @@ if (!hidePanels) {
     defaultPanelWidth: 300,
     initializeDefaultAnchors: true,
     classPrefix: 'blork-tabs',
-    // Auto-hide after 5 seconds unless ?panels=visible
     startHidden: !showPanels,
-    autoHideDelay: showPanels ? undefined : 5000,
+    // autoHideDelay omitted — we manage hide timing ourselves so hover pauses it
   });
 
   tabManager.registerPanel('connection', connectionPanel, {
@@ -888,6 +887,42 @@ if (!hidePanels) {
     detachGrip: document.getElementById('input-detach-grip') as HTMLDivElement,
     startCollapsed: true,
   });
+
+  // Hover-aware auto-hide (only when not forced visible)
+  if (!showPanels) {
+    const AUTO_HIDE_DELAY = 5000;
+    const allPanelEls = [connectionPanel, settingsPanel, entityPanel, effectsPanel, inputPanel];
+    const panelIds = ['connection', 'settings', 'entity', 'effects', 'input'];
+    let autoHideTimer: ReturnType<typeof setTimeout> | null = null;
+    let panelHoverCount = 0;
+
+    const clearHideTimer = () => {
+      if (autoHideTimer !== null) { clearTimeout(autoHideTimer); autoHideTimer = null; }
+    };
+
+    const scheduleHide = () => {
+      clearHideTimer();
+      autoHideTimer = setTimeout(() => {
+        panelIds.forEach(id => tabManager.hide(id));
+      }, AUTO_HIDE_DELAY);
+    };
+
+    document.addEventListener('mousemove', () => {
+      panelIds.forEach(id => tabManager.show(id));
+      if (panelHoverCount === 0) scheduleHide();
+    });
+
+    allPanelEls.forEach(el => {
+      el.addEventListener('mouseenter', () => {
+        panelHoverCount++;
+        clearHideTimer();
+      });
+      el.addEventListener('mouseleave', () => {
+        panelHoverCount = Math.max(0, panelHoverCount - 1);
+        if (panelHoverCount === 0) scheduleHide();
+      });
+    });
+  }
 
   // Sync stats visibility with tab panel visibility
   if (!showPanels) {
