@@ -1,5 +1,5 @@
 import { OverlayScene, setLogLevel, TAGS, type EffectObjectConfig } from '@blorkfield/overlay-core';
-import { TabManager } from '@blorkfield/blork-tabs';
+import { TabManager, togglePin } from '@blorkfield/blork-tabs';
 import '@blorkfield/blork-tabs/styles.css';
 import { OBSClient } from './obs/index.js';
 import { loadConfig, saveConfig } from './config.js';
@@ -1460,45 +1460,43 @@ if (!hidePanels) {
     // autoHideDelay omitted — we manage hide timing ourselves so hover pauses it
   });
 
-  tabManager.registerPanel('connection', connectionPanel, {
-    dragHandle: connectionDragHandle,
-    collapseButton: connectionCollapseBtn,
-    contentWrapper: connectionContent,
-    detachGrip: document.getElementById('connection-detach-grip') as HTMLDivElement,
-    startCollapsed: false,
-  });
-
-  tabManager.registerPanel('settings', settingsPanel, {
-    dragHandle: settingsDragHandle,
-    collapseButton: settingsCollapseBtn,
-    contentWrapper: settingsContent,
-    detachGrip: document.getElementById('settings-detach-grip') as HTMLDivElement,
-    startCollapsed: true,
-  });
-
-  tabManager.registerPanel('entity', entityPanel, {
-    dragHandle: entityDragHandle,
-    collapseButton: entityCollapseBtn,
-    contentWrapper: entityContent,
-    detachGrip: document.getElementById('entity-detach-grip') as HTMLDivElement,
-    startCollapsed: true,
-  });
-
-  tabManager.registerPanel('effects', effectsPanel, {
-    dragHandle: effectsDragHandle,
-    collapseButton: effectsCollapseBtn,
-    contentWrapper: effectsContent,
-    detachGrip: document.getElementById('effects-detach-grip') as HTMLDivElement,
-    startCollapsed: true,
-  });
-
-  tabManager.registerPanel('input', inputPanel, {
-    dragHandle: inputDragHandle,
-    collapseButton: inputCollapseBtn,
-    contentWrapper: inputContent,
-    detachGrip: document.getElementById('input-detach-grip') as HTMLDivElement,
-    startCollapsed: true,
-  });
+  [
+    tabManager.registerPanel('connection', connectionPanel, {
+      dragHandle: connectionDragHandle,
+      collapseButton: connectionCollapseBtn,
+      contentWrapper: connectionContent,
+      detachGrip: document.getElementById('connection-detach-grip') as HTMLDivElement,
+      startCollapsed: false,
+    }),
+    tabManager.registerPanel('settings', settingsPanel, {
+      dragHandle: settingsDragHandle,
+      collapseButton: settingsCollapseBtn,
+      contentWrapper: settingsContent,
+      detachGrip: document.getElementById('settings-detach-grip') as HTMLDivElement,
+      startCollapsed: true,
+    }),
+    tabManager.registerPanel('entity', entityPanel, {
+      dragHandle: entityDragHandle,
+      collapseButton: entityCollapseBtn,
+      contentWrapper: entityContent,
+      detachGrip: document.getElementById('entity-detach-grip') as HTMLDivElement,
+      startCollapsed: true,
+    }),
+    tabManager.registerPanel('effects', effectsPanel, {
+      dragHandle: effectsDragHandle,
+      collapseButton: effectsCollapseBtn,
+      contentWrapper: effectsContent,
+      detachGrip: document.getElementById('effects-detach-grip') as HTMLDivElement,
+      startCollapsed: true,
+    }),
+    tabManager.registerPanel('input', inputPanel, {
+      dragHandle: inputDragHandle,
+      collapseButton: inputCollapseBtn,
+      contentWrapper: inputContent,
+      detachGrip: document.getElementById('input-detach-grip') as HTMLDivElement,
+      startCollapsed: true,
+    }),
+  ].forEach(state => togglePin(state, false));
 
   // Hover-aware auto-hide (only when not forced visible)
   if (!showPanels) {

@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# AI
+CLAUDE.md
+
 # Build output
 dist/
 
