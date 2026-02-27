@@ -3,8 +3,46 @@ import { TabManager } from '@blorkfield/blork-tabs';
 import '@blorkfield/blork-tabs/styles.css';
 import { OBSClient } from './obs/index.js';
 import { loadConfig, saveConfig } from './config.js';
-import { TwitchChat } from '@blorkfield/twitch-integration';
-import type { NormalizedMessage } from '@blorkfield/twitch-integration';
+import { TwitchClient } from '@blorkfield/twitch-integration';
+import type { NormalizedMessage, TwitchClientSubscriptions } from '@blorkfield/twitch-integration';
+
+// === Effect Event Types ===
+type EffectTriggerConditionType = 'text' | 'emote' | 'bits' | 'follow' | 'subscribe' | 'subscriptionGift' | 'cheer' | 'raid' | 'channelPoints' | 'streamOnline' | 'streamOffline';
+type TriggerSourceType = 'message' | 'follow' | 'subscribe' | 'subscriptionGift' | 'cheer' | 'raid' | 'channelPoints' | 'streamOnline' | 'streamOffline';
+interface TriggerEventData {
+  sourceType: TriggerSourceType;
+  userId?: string;
+  text?: string;
+  emotes?: string[];
+  bits?: number;
+  viewers?: number;
+  rewardTitle?: string;
+}
+interface TriggerCondition { type: EffectTriggerConditionType; value: string; }
+interface TriggerConfig { conditions: TriggerCondition[]; combinator: 'AND' | 'OR'; fireThreshold: number; }
+type EntitySource = 'shape' | 'url' | 'trigger-sender' | 'recent-chatters';
+interface EntityDefinition { source: EntitySource; color: string; url: string; windowMinutes: number; radius: number; }
+type DurationType = 'none' | 'time' | 'count';
+interface LifecycleConfig { durationType: DurationType; durationValue: number; maxTriggers: number; allowRetrigger: boolean; }
+interface EffectDefinition {
+  id: string;
+  effectType: 'burst' | 'rain' | 'stream';
+  trigger: TriggerConfig | null;
+  lifecycle: LifecycleConfig;
+  entities: EntityDefinition[];
+  burstInterval: number; burstCount: number; burstForce: number;
+  rainSpawnRate: number; rainSpawnWidth: number;
+  streamOriginX: number; streamOriginY: number; streamDirection: number;
+  streamSpawnRate: number; streamForce: number; streamConeAngle: number;
+}
+interface ArmedEvent {
+  definition: EffectDefinition;
+  matchCount: number;
+  triggerCount: number;
+  isActive: boolean;
+  activeEffectId: string | null;
+  stopTimer: ReturnType<typeof setTimeout> | null;
+}
 
 // Load config
 let config = loadConfig();
@@ -84,6 +122,10 @@ const inputTwitchAccessToken = document.getElementById('input-twitch-access-toke
 const btnTwitchConnect = document.getElementById('btn-twitch-connect') as HTMLButtonElement;
 const btnTwitchDisconnect = document.getElementById('btn-twitch-disconnect') as HTMLButtonElement;
 const twitchConnectionStatus = document.getElementById('twitch-connection-status') as HTMLSpanElement;
+const subsAvailable = document.getElementById('subs-available') as HTMLSelectElement;
+const subsSelected = document.getElementById('subs-selected') as HTMLSelectElement;
+const btnSubAdd = document.getElementById('btn-sub-add') as HTMLButtonElement;
+const btnSubRemove = document.getElementById('btn-sub-remove') as HTMLButtonElement;
 
 // Panel elements
 const connectionPanel = document.getElementById('connection-panel') as HTMLDivElement;
@@ -109,12 +151,20 @@ const effectsContent = document.getElementById('effects-content') as HTMLDivElem
 // Effects panel elements
 const activeEffectsList = document.getElementById('active-effects-list') as HTMLDivElement;
 const btnStopAllEffects = document.getElementById('btn-stop-all-effects') as HTMLButtonElement;
-const btnCreateBurst = document.getElementById('btn-create-burst') as HTMLButtonElement;
-const btnCreateRain = document.getElementById('btn-create-rain') as HTMLButtonElement;
-const btnCreateStream = document.getElementById('btn-create-stream') as HTMLButtonElement;
-const burstEntityList = document.getElementById('burst-entity-list') as HTMLDivElement;
-const rainEntityList = document.getElementById('rain-entity-list') as HTMLDivElement;
-const streamEntityList = document.getElementById('stream-entity-list') as HTMLDivElement;
+const effectTypeSelect = document.getElementById('effect-type-select') as HTMLSelectElement;
+const btnAddCondition = document.getElementById('btn-add-condition') as HTMLButtonElement;
+const triggerConditionList = document.getElementById('trigger-condition-list') as HTMLDivElement;
+const triggerCombinatorRow = document.getElementById('trigger-combinator-row') as HTMLDivElement;
+const triggerCombinator = document.getElementById('trigger-combinator') as HTMLSelectElement;
+const triggerThresholdRow = document.getElementById('trigger-threshold-row') as HTMLDivElement;
+const triggerThreshold = document.getElementById('trigger-threshold') as HTMLInputElement;
+const btnAddEntity = document.getElementById('btn-add-entity') as HTMLButtonElement;
+const newEffectEntityList = document.getElementById('new-effect-entity-list') as HTMLDivElement;
+const lifecycleDurationType = document.getElementById('lifecycle-duration-type') as HTMLSelectElement;
+const lifecycleDurationValue = document.getElementById('lifecycle-duration-value') as HTMLInputElement;
+const lifecycleMaxTriggers = document.getElementById('lifecycle-max-triggers') as HTMLInputElement;
+const lifecycleAllowRetrigger = document.getElementById('lifecycle-allow-retrigger') as HTMLInputElement;
+const btnCreateEffect = document.getElementById('btn-create-effect') as HTMLButtonElement;
 
 const inputPanel = document.getElementById('input-panel') as HTMLDivElement;
 const inputDragHandle = document.getElementById('input-drag-handle') as HTMLDivElement;
@@ -132,8 +182,65 @@ let mouseWs: WebSocket | null = null;
 let debugLog: ReturnType<typeof TabManager.prototype.createDebugLog> | null = null;
 
 // Twitch state
-let twitchChat: TwitchChat | null = null;
+let twitchChat: TwitchClient | null = null;
 let chatDebugLog: ReturnType<typeof TabManager.prototype.createDebugLog> | null = null;
+
+const TWITCH_SUBS: Array<{ key: keyof TwitchClientSubscriptions; label: string }> = [
+  { key: 'chat',          label: 'Chat' },
+  { key: 'follow',        label: 'Follows' },
+  { key: 'subscribe',     label: 'Subscriptions' },
+  { key: 'cheer',         label: 'Cheers / Bits' },
+  { key: 'raid',          label: 'Raids' },
+  { key: 'channelPoints', label: 'Channel Points' },
+  { key: 'streamStatus',  label: 'Stream Status' },
+  { key: 'channelUpdate', label: 'Channel Update' },
+  { key: 'hypeTrain',     label: 'Hype Train' },
+  { key: 'polls',         label: 'Polls' },
+  { key: 'predictions',   label: 'Predictions' },
+  { key: 'adBreak',       label: 'Ad Breaks' },
+  { key: 'shoutouts',     label: 'Shoutouts' },
+];
+
+let selectedTwitchSubs: string[] = [...config.twitch.subscriptions];
+
+function renderSubPicker(): void {
+  subsAvailable.innerHTML = '';
+  subsSelected.innerHTML = '';
+  for (const { key, label } of TWITCH_SUBS) {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = label;
+    if (selectedTwitchSubs.includes(key)) {
+      subsSelected.appendChild(opt);
+    } else {
+      subsAvailable.appendChild(opt);
+    }
+  }
+}
+
+function moveSubsToSelected(): void {
+  const toAdd = Array.from(subsAvailable.selectedOptions).map(o => o.value);
+  selectedTwitchSubs.push(...toAdd.filter(k => !selectedTwitchSubs.includes(k)));
+  renderSubPicker();
+}
+
+function moveSubsToAvailable(): void {
+  const toRemove = Array.from(subsSelected.selectedOptions).map(o => o.value);
+  selectedTwitchSubs = selectedTwitchSubs.filter(k => !toRemove.includes(k));
+  renderSubPicker();
+}
+
+btnSubAdd.addEventListener('click', moveSubsToSelected);
+btnSubRemove.addEventListener('click', moveSubsToAvailable);
+
+// Effect event state
+const armedEvents = new Map<string, ArmedEvent>();
+const recentChatters: Array<{ userId: string; timestamp: number }> = [];
+setInterval(() => {
+  const cutoff = Date.now() - 15 * 60 * 1000;
+  const firstFresh = recentChatters.findIndex(c => c.timestamp >= cutoff);
+  if (firstFresh > 0) recentChatters.splice(0, firstFresh);
+}, 60_000);
 
 // Log click with entity positions
 function logClickWithEntities(source: string, clickX: number, clickY: number, rawX?: number, rawY?: number): void {
@@ -432,64 +539,357 @@ function randomEffectColor(): string {
   return EFFECT_COLORS[Math.floor(Math.random() * EFFECT_COLORS.length)];
 }
 
-function addEntityRow(listEl: HTMLElement): void {
+function updateTriggerVisibility(): void {
+  const count = triggerConditionList.querySelectorAll('.entity-item').length;
+  triggerCombinatorRow.style.display = count >= 2 ? '' : 'none';
+  triggerThresholdRow.style.display = count >= 1 ? '' : 'none';
+}
+
+function addConditionRow(): void {
+  const row = document.createElement('div');
+  row.className = 'entity-item';
+  const condValuePlaceholders: Partial<Record<EffectTriggerConditionType, string>> = {
+    text: 'text to match', emote: 'emote name', bits: 'min bits',
+    cheer: 'min bits', raid: 'min viewers', channelPoints: 'reward title (blank = any)',
+  };
+  const condNoValue = new Set<EffectTriggerConditionType>(['follow', 'subscribe', 'subscriptionGift', 'streamOnline', 'streamOffline']);
+  row.innerHTML = `
+    <div class="entity-row entity-row-header" style="margin-bottom:0">
+      <select class="condition-type select-input" style="flex:1;font-size:11px;padding:5px 8px">
+        <optgroup label="Chat message">
+          <option value="text">Contains text</option>
+          <option value="emote">Contains emote</option>
+          <option value="bits">Bits cheer ≥ (chat)</option>
+        </optgroup>
+        <optgroup label="Channel events">
+          <option value="follow">Follow</option>
+          <option value="subscribe">Subscribe / Resub</option>
+          <option value="subscriptionGift">Gift sub</option>
+          <option value="cheer">Cheer bits ≥</option>
+          <option value="raid">Raid viewers ≥</option>
+          <option value="channelPoints">Channel points reward</option>
+          <option value="streamOnline">Stream online</option>
+          <option value="streamOffline">Stream offline</option>
+        </optgroup>
+      </select>
+      <input class="condition-value" type="text" placeholder="text to match" style="flex:1;min-width:0;font-size:11px;margin-left:4px">
+      <button class="remove-btn" style="margin-left:4px">×</button>
+    </div>
+  `;
+  const typeSelect = row.querySelector('.condition-type') as HTMLSelectElement;
+  const valueInput = row.querySelector('.condition-value') as HTMLInputElement;
+  typeSelect.addEventListener('change', () => {
+    const t = typeSelect.value as EffectTriggerConditionType;
+    valueInput.style.display = condNoValue.has(t) ? 'none' : '';
+    valueInput.placeholder = condValuePlaceholders[t] ?? 'value';
+  });
+  (row.querySelector('.remove-btn') as HTMLButtonElement).addEventListener('click', () => {
+    row.remove();
+    updateTriggerVisibility();
+  });
+  triggerConditionList.appendChild(row);
+  updateTriggerVisibility();
+}
+
+function addEntityRow(): void {
   const row = document.createElement('div');
   row.className = 'entity-item';
   row.innerHTML = `
-    <div class="entity-row entity-row-header">
-      <span style="font-size:11px;color:#888;flex:1">Entity Type</span>
-      <button class="remove-btn">✕</button>
+    <div class="entity-row entity-row-header" style="margin-bottom:6px">
+      <select class="entity-source select-input" style="flex:1;font-size:11px;padding:5px 8px">
+        <option value="shape">Shape</option>
+        <option value="url">Image URL</option>
+        <option value="trigger-sender">Trigger sender</option>
+        <option value="recent-chatters">Recent chatters</option>
+      </select>
+      <button class="remove-btn" style="margin-left:4px">×</button>
+    </div>
+    <div class="entity-row entity-source-config" data-for="shape">
+      <label>Color:</label><input type="color" class="entity-color" value="#4a90d9" style="width:50px;height:26px;padding:2px;border:1px solid #3a3a5a;border-radius:4px;background:#1a1a2e;cursor:pointer">
+    </div>
+    <div class="entity-row entity-source-config" data-for="url" style="display:none">
+      <label>URL:</label><input type="text" class="entity-url" placeholder="https://..." style="flex:1;min-width:0;font-size:11px">
+    </div>
+    <div class="entity-row entity-source-config" data-for="recent-chatters" style="display:none">
+      <label style="width:30px">Window (min):</label>
+        <input type="number" class="entity-window" value="5" min="1" style="width:50px">
+      <label style="font-size:11px;color:#888;flex-shrink:0;margin-left:4px">All</label>
+      <label class="toggle-switch" style="flex-shrink:0">
+        <input type="checkbox" class="entity-all-chatters">
+        <span class="toggle-slider"></span>
+      </label>
     </div>
     <div class="entity-row">
-      <label>Image:</label>
-      <input type="text" placeholder="URL or blank" style="flex:1;min-width:0;font-size:11px">
-    </div>
-    <div class="entity-row">
-      <label>Radius:</label>
-      <input type="number" value="20" min="5" max="100" style="width:50px">
+      <label style="width:30px">Radius:</label>
+        <input type="number" class="entity-radius" value="20" min="5" max="100" style="width:50px">
     </div>
   `;
+  const sourceSelect = row.querySelector('.entity-source') as HTMLSelectElement;
+  sourceSelect.addEventListener('change', () => {
+    row.querySelectorAll<HTMLElement>('.entity-source-config').forEach(el => {
+      el.style.display = el.dataset.for === sourceSelect.value ? '' : 'none';
+    });
+  });
+  const allChattersCheck = row.querySelector('.entity-all-chatters') as HTMLInputElement;
+  const windowInput = row.querySelector('.entity-window') as HTMLInputElement;
+  allChattersCheck.addEventListener('change', () => {
+    windowInput.disabled = allChattersCheck.checked;
+    windowInput.style.opacity = allChattersCheck.checked ? '0.4' : '';
+  });
   (row.querySelector('.remove-btn') as HTMLButtonElement).addEventListener('click', () => row.remove());
-  listEl.appendChild(row);
+  newEffectEntityList.appendChild(row);
 }
 
-function getEntityConfigs(listEl: HTMLElement): EffectObjectConfig[] {
-  const rows = Array.from(listEl.querySelectorAll<HTMLElement>('.entity-item'));
+function readTriggerConfig(): TriggerConfig | null {
+  const rows = Array.from(triggerConditionList.querySelectorAll<HTMLElement>('.entity-item'));
+  if (rows.length === 0) return null;
+  const conditions: TriggerCondition[] = rows.map(row => ({
+    type: (row.querySelector('.condition-type') as HTMLSelectElement).value as EffectTriggerConditionType,
+    value: (row.querySelector('.condition-value') as HTMLInputElement).value.trim(),
+  }));
+  return {
+    conditions,
+    combinator: triggerCombinator.value as 'AND' | 'OR',
+    fireThreshold: parseInt(triggerThreshold.value) || 1,
+  };
+}
+
+function readEntityDefinitions(): EntityDefinition[] {
+  const rows = Array.from(newEffectEntityList.querySelectorAll<HTMLElement>('.entity-item'));
   if (rows.length === 0) {
-    return [{
-      objectConfig: { fillStyle: randomEffectColor(), tags: [TAGS.FALLING] },
-      probability: 1,
-      minScale: 0.8,
-      maxScale: 1.3,
-      baseRadius: 20,
-    }];
+    return [{ source: 'shape', color: randomEffectColor(), url: '', windowMinutes: 5, radius: 20 }];
   }
   return rows.map(row => {
-    const inputs = row.querySelectorAll<HTMLInputElement>('input');
-    const imageUrl = inputs[0].value.trim();
-    const radius = parseInt(inputs[1].value) || 20;
+    const source = (row.querySelector('.entity-source') as HTMLSelectElement).value as EntitySource;
+    const colorEl = row.querySelector<HTMLInputElement>('.entity-color');
+    const urlEl = row.querySelector<HTMLInputElement>('.entity-url');
+    const windowEl = row.querySelector<HTMLInputElement>('.entity-window');
+    const allEl = row.querySelector<HTMLInputElement>('.entity-all-chatters');
+    const radiusEl = row.querySelector<HTMLInputElement>('.entity-radius');
     return {
-      objectConfig: {
-        fillStyle: randomEffectColor(),
-        imageUrl: imageUrl || undefined,
-        tags: [TAGS.FALLING],
-      },
-      probability: 1,
-      minScale: 0.8,
-      maxScale: 1.3,
-      baseRadius: radius,
+      source,
+      color: colorEl?.value ?? '#4a90d9',
+      url: urlEl?.value.trim() ?? '',
+      windowMinutes: allEl?.checked ? 0 : (parseInt(windowEl?.value ?? '5') || 5),
+      radius: parseInt(radiusEl?.value ?? '20') || 20,
     };
   });
 }
 
+function getInputVal(id: string, fallback: number): number {
+  return parseFloat((document.getElementById(id) as HTMLInputElement).value) || fallback;
+}
+
+function readEffectDefinition(): EffectDefinition {
+  return {
+    id: `event-${Date.now()}`,
+    effectType: effectTypeSelect.value as 'burst' | 'rain' | 'stream',
+    trigger: readTriggerConfig(),
+    lifecycle: {
+      durationType: lifecycleDurationType.value as DurationType,
+      durationValue: parseFloat(lifecycleDurationValue.value) || 10,
+      maxTriggers: parseInt(lifecycleMaxTriggers.value) || 0,
+      allowRetrigger: lifecycleAllowRetrigger.checked,
+    },
+    entities: readEntityDefinitions(),
+    burstInterval: getInputVal('burst-interval', 2000),
+    burstCount: getInputVal('burst-count', 8),
+    burstForce: getInputVal('burst-force', 15),
+    rainSpawnRate: getInputVal('rain-spawn-rate', 5),
+    rainSpawnWidth: getInputVal('rain-spawn-width', 1),
+    streamOriginX: getInputVal('stream-origin-x', 50),
+    streamOriginY: getInputVal('stream-origin-y', 0),
+    streamDirection: getInputVal('stream-direction', 90),
+    streamSpawnRate: getInputVal('stream-spawn-rate', 10),
+    streamForce: getInputVal('stream-force', 15),
+    streamConeAngle: getInputVal('stream-cone-angle', 15),
+  };
+}
+
+function evaluateTrigger(trigger: TriggerConfig, data: TriggerEventData): boolean {
+  const chatTypes = new Set(['text', 'emote', 'bits']);
+  const results = trigger.conditions.map(cond => {
+    // Gate: chat conditions only fire from message events; channel conditions only from their own source
+    const expectedSource: TriggerSourceType = chatTypes.has(cond.type) ? 'message' : (cond.type as TriggerSourceType);
+    if (data.sourceType !== expectedSource) return false;
+    switch (cond.type) {
+      case 'text':    return (data.text ?? '').toLowerCase().includes(cond.value.toLowerCase());
+      case 'emote':   return (data.emotes ?? []).some(e => e === cond.value);
+      case 'bits':    return (data.bits ?? 0) >= parseInt(cond.value || '0');
+      case 'cheer':   return (data.bits ?? 0) >= parseInt(cond.value || '1');
+      case 'raid':    return (data.viewers ?? 0) >= parseInt(cond.value || '1');
+      case 'channelPoints': return !cond.value || (data.rewardTitle ?? '').toLowerCase().includes(cond.value.toLowerCase());
+      default:        return true; // follow, subscribe, subscriptionGift, streamOnline, streamOffline
+    }
+  });
+  return trigger.combinator === 'AND' ? results.every(Boolean) : results.some(Boolean);
+}
+
+function fireTriggerFor(data: TriggerEventData): void {
+  for (const armed of armedEvents.values()) {
+    if (!armed.definition.trigger) continue;
+    if (evaluateTrigger(armed.definition.trigger, data)) {
+      armed.matchCount++;
+      if (armed.matchCount >= armed.definition.trigger.fireThreshold) {
+        armed.matchCount = 0;
+        void fireEvent(armed, data.userId ?? null);
+      }
+      renderActiveEffects();
+    }
+  }
+}
+
+async function resolveEntityConfigs(entities: EntityDefinition[], userId: string | null): Promise<EffectObjectConfig[]> {
+  const configs: EffectObjectConfig[] = [];
+  for (const entity of entities) {
+    if (entity.source === 'shape') {
+      configs.push({
+        objectConfig: { fillStyle: entity.color, tags: [TAGS.FALLING] },
+        probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: entity.radius,
+      });
+    } else if (entity.source === 'url') {
+      configs.push({
+        objectConfig: { fillStyle: randomEffectColor(), imageUrl: entity.url, tags: [TAGS.FALLING] },
+        probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: entity.radius,
+      });
+    } else if (entity.source === 'trigger-sender') {
+      let imageUrl: string | undefined;
+      if (twitchChat && userId) {
+        try { imageUrl = await twitchChat.getProfilePictureUrl(userId) ?? undefined; } catch { /* fallback */ }
+      }
+      configs.push({
+        objectConfig: { fillStyle: randomEffectColor(), imageUrl, tags: [TAGS.FALLING] },
+        probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: entity.radius,
+      });
+    } else if (entity.source === 'recent-chatters') {
+      const filtered = entity.windowMinutes === 0
+        ? recentChatters
+        : recentChatters.filter(c => c.timestamp >= Date.now() - entity.windowMinutes * 60 * 1000);
+      const uniqueIds = [...new Set(filtered.map(c => c.userId))];
+      if (uniqueIds.length === 0) {
+        configs.push({
+          objectConfig: { fillStyle: randomEffectColor(), tags: [TAGS.FALLING] },
+          probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: entity.radius,
+        });
+      } else if (twitchChat) {
+        try {
+          const urlMap = await twitchChat.getProfilePictureUrls(uniqueIds);
+          for (const [, url] of urlMap) {
+            configs.push({
+              objectConfig: { fillStyle: randomEffectColor(), imageUrl: url ?? undefined, tags: [TAGS.FALLING] },
+              probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: entity.radius,
+            });
+          }
+        } catch {
+          configs.push({
+            objectConfig: { fillStyle: randomEffectColor(), tags: [TAGS.FALLING] },
+            probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: entity.radius,
+          });
+        }
+      } else {
+        for (let i = 0; i < uniqueIds.length; i++) {
+          configs.push({
+            objectConfig: { fillStyle: randomEffectColor(), tags: [TAGS.FALLING] },
+            probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: entity.radius,
+          });
+        }
+      }
+    }
+  }
+  return configs.length > 0 ? configs : [{
+    objectConfig: { fillStyle: randomEffectColor(), tags: [TAGS.FALLING] },
+    probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: 20,
+  }];
+}
+
+function computeStopDelayMs(def: EffectDefinition): number | null {
+  const { durationType, durationValue } = def.lifecycle;
+  if (durationType === 'none') return null;
+  if (durationType === 'time') return durationValue * 1000;
+  if (def.effectType === 'burst') return Math.ceil(durationValue / def.burstCount) * def.burstInterval;
+  if (def.effectType === 'rain') return (durationValue / def.rainSpawnRate) * 1000;
+  return (durationValue / def.streamSpawnRate) * 1000;
+}
+
+function buildSceneEffectConfig(def: EffectDefinition, objectConfigs: EffectObjectConfig[], effectId: string) {
+  if (def.effectType === 'burst') {
+    return { id: effectId, enabled: true, objectConfigs, type: 'burst' as const, burstInterval: def.burstInterval, burstCount: def.burstCount, burstForce: def.burstForce };
+  }
+  if (def.effectType === 'rain') {
+    return { id: effectId, enabled: true, objectConfigs, type: 'rain' as const, spawnRate: def.rainSpawnRate, spawnWidth: def.rainSpawnWidth };
+  }
+  const dirRad = def.streamDirection * Math.PI / 180;
+  return {
+    id: effectId, enabled: true, objectConfigs, type: 'stream' as const,
+    origin: {
+      x: canvas ? (def.streamOriginX / 100) * canvas.width : 0,
+      y: canvas ? (def.streamOriginY / 100) * canvas.height : 0,
+    },
+    direction: { x: Math.cos(dirRad), y: Math.sin(dirRad) },
+    spawnRate: def.streamSpawnRate,
+    force: def.streamForce,
+    coneAngle: def.streamConeAngle * Math.PI / 180,
+  };
+}
+
+async function fireEvent(armed: ArmedEvent, userId: string | null): Promise<void> {
+  const { definition: def } = armed;
+  if (!def.lifecycle.allowRetrigger && armed.isActive) return;
+  if (!scene) return;
+  const objectConfigs = await resolveEntityConfigs(def.entities, userId);
+  const effectId = nextEffectId(def.effectType);
+  scene.setEffect(buildSceneEffectConfig(def, objectConfigs, effectId));
+  armed.isActive = true;
+  armed.activeEffectId = effectId;
+  const delay = computeStopDelayMs(def);
+  if (delay !== null) {
+    if (armed.stopTimer !== null) clearTimeout(armed.stopTimer);
+    armed.stopTimer = setTimeout(() => {
+      scene?.removeEffect(effectId);
+      armed.isActive = false;
+      armed.activeEffectId = null;
+      armed.stopTimer = null;
+      renderActiveEffects();
+    }, delay);
+  }
+  armed.triggerCount++;
+  if (def.lifecycle.maxTriggers > 0 && armed.triggerCount >= def.lifecycle.maxTriggers) {
+    armedEvents.delete(def.id);
+  }
+  renderActiveEffects();
+}
+
 function renderActiveEffects(): void {
-  const ids = scene?.getEffectIds() ?? [];
-  if (ids.length === 0) {
+  const runningIds = scene?.getEffectIds() ?? [];
+  const armedList = Array.from(armedEvents.values());
+  if (runningIds.length === 0 && armedList.length === 0) {
     activeEffectsList.innerHTML = '<div class="empty-message">No active effects</div>';
     return;
   }
   activeEffectsList.innerHTML = '';
-  for (const id of ids) {
+  for (const armed of armedList) {
+    const def = armed.definition;
+    const typeLabel = def.effectType.charAt(0).toUpperCase() + def.effectType.slice(1);
+    const maxLabel = def.lifecycle.maxTriggers > 0 ? `/${def.lifecycle.maxTriggers}` : '';
+    const item = document.createElement('div');
+    item.className = 'entity-item';
+    item.style.marginBottom = '4px';
+    item.innerHTML = `
+      <div class="entity-row entity-row-header" style="margin-bottom:0">
+        <span style="flex:1;font-size:12px">${typeLabel} — armed (${armed.triggerCount}${maxLabel})</span>
+        <span style="font-size:10px;color:#555;margin-right:6px">${armed.matchCount} pending</span>
+        <button class="remove-btn">Stop</button>
+      </div>
+    `;
+    (item.querySelector('.remove-btn') as HTMLButtonElement).addEventListener('click', () => {
+      if (armed.stopTimer !== null) clearTimeout(armed.stopTimer);
+      if (armed.activeEffectId) scene?.removeEffect(armed.activeEffectId);
+      armedEvents.delete(def.id);
+      renderActiveEffects();
+    });
+    activeEffectsList.appendChild(item);
+  }
+  for (const id of runningIds) {
     const effect = scene?.getEffect(id);
     if (!effect) continue;
     const typeLabel = effect.type.charAt(0).toUpperCase() + effect.type.slice(1);
@@ -511,70 +911,47 @@ function renderActiveEffects(): void {
   }
 }
 
-function getInputVal(id: string, fallback: number): number {
-  return parseFloat((document.getElementById(id) as HTMLInputElement).value) || fallback;
-}
-
-function createBurstEffect(): void {
+async function createEffectEvent(): Promise<void> {
   if (!scene) return;
-  scene.setEffect({
-    id: nextEffectId('burst'),
-    type: 'burst',
-    enabled: true,
-    burstInterval: getInputVal('burst-interval', 2000),
-    burstCount: getInputVal('burst-count', 8),
-    burstForce: getInputVal('burst-force', 15),
-    objectConfigs: getEntityConfigs(burstEntityList),
-  });
-  renderActiveEffects();
-}
-
-function createRainEffect(): void {
-  if (!scene) return;
-  scene.setEffect({
-    id: nextEffectId('rain'),
-    type: 'rain',
-    enabled: true,
-    spawnRate: getInputVal('rain-spawn-rate', 5),
-    spawnWidth: getInputVal('rain-spawn-width', 1),
-    objectConfigs: getEntityConfigs(rainEntityList),
-  });
-  renderActiveEffects();
-}
-
-function createStreamEffect(): void {
-  if (!scene || !canvas) return;
-  const dirRad = getInputVal('stream-direction', 90) * Math.PI / 180;
-  scene.setEffect({
-    id: nextEffectId('stream'),
-    type: 'stream',
-    enabled: true,
-    origin: {
-      x: (getInputVal('stream-origin-x', 50) / 100) * canvas.width,
-      y: (getInputVal('stream-origin-y', 0) / 100) * canvas.height,
-    },
-    direction: { x: Math.cos(dirRad), y: Math.sin(dirRad) },
-    spawnRate: getInputVal('stream-spawn-rate', 10),
-    force: getInputVal('stream-force', 15),
-    coneAngle: getInputVal('stream-cone-angle', 15) * Math.PI / 180,
-    objectConfigs: getEntityConfigs(streamEntityList),
-  });
+  const def = readEffectDefinition();
+  if (def.trigger === null) {
+    const objectConfigs = await resolveEntityConfigs(def.entities, null);
+    const effectId = nextEffectId(def.effectType);
+    scene.setEffect(buildSceneEffectConfig(def, objectConfigs, effectId));
+    const delay = computeStopDelayMs(def);
+    if (delay !== null) {
+      setTimeout(() => { scene?.removeEffect(effectId); renderActiveEffects(); }, delay);
+    }
+  } else {
+    armedEvents.set(def.id, { definition: def, matchCount: 0, triggerCount: 0, isActive: false, activeEffectId: null, stopTimer: null });
+  }
   renderActiveEffects();
 }
 
 function stopAllEffects(): void {
+  for (const armed of armedEvents.values()) {
+    if (armed.stopTimer !== null) clearTimeout(armed.stopTimer);
+    if (armed.activeEffectId) scene?.removeEffect(armed.activeEffectId);
+  }
+  armedEvents.clear();
   scene?.getEffectIds().forEach(id => scene?.removeEffect(id));
   renderActiveEffects();
 }
 
 // Effects event listeners
-btnCreateBurst.addEventListener('click', createBurstEffect);
-btnCreateRain.addEventListener('click', createRainEffect);
-btnCreateStream.addEventListener('click', createStreamEffect);
+effectTypeSelect.addEventListener('change', () => {
+  const type = effectTypeSelect.value;
+  (document.getElementById('params-burst') as HTMLElement).style.display = type === 'burst' ? '' : 'none';
+  (document.getElementById('params-rain') as HTMLElement).style.display = type === 'rain' ? '' : 'none';
+  (document.getElementById('params-stream') as HTMLElement).style.display = type === 'stream' ? '' : 'none';
+});
+lifecycleDurationType.addEventListener('change', () => {
+  lifecycleDurationValue.style.display = lifecycleDurationType.value !== 'none' ? '' : 'none';
+});
+btnAddCondition.addEventListener('click', addConditionRow);
+btnAddEntity.addEventListener('click', addEntityRow);
+btnCreateEffect.addEventListener('click', () => { void createEffectEvent(); });
 btnStopAllEffects.addEventListener('click', stopAllEffects);
-document.getElementById('burst-add-entity')!.addEventListener('click', () => addEntityRow(burstEntityList));
-document.getElementById('rain-add-entity')!.addEventListener('click', () => addEntityRow(rainEntityList));
-document.getElementById('stream-add-entity')!.addEventListener('click', () => addEntityRow(streamEntityList));
 
 // Entity spawning
 async function spawnRandomEntity(): Promise<void> {
@@ -744,6 +1121,10 @@ function updateTwitchUI(state: 'connected' | 'disconnected' | 'connecting' | 'au
   inputTwitchUserId.disabled = connected || connecting;
   inputTwitchClientId.disabled = connected || connecting;
   inputTwitchAccessToken.disabled = connected || connecting;
+  subsAvailable.disabled = connected || connecting;
+  subsSelected.disabled = connected || connecting;
+  btnSubAdd.disabled = connected || connecting;
+  btnSubRemove.disabled = connected || connecting;
 }
 
 async function connectToTwitch(): Promise<void> {
@@ -759,7 +1140,11 @@ async function connectToTwitch(): Promise<void> {
 
   updateTwitchUI('connecting');
 
-  const chat = new TwitchChat({ channelId, userId, clientId, accessToken });
+  const subscriptions: TwitchClientSubscriptions = {};
+  for (const key of selectedTwitchSubs) {
+    (subscriptions as Record<string, boolean>)[key] = true;
+  }
+  const chat = new TwitchClient({ channelId, userId, clientId, accessToken, subscriptions });
   twitchChat = chat;
 
   chat.on('connected', () => {
@@ -779,6 +1164,18 @@ async function connectToTwitch(): Promise<void> {
     if (msg.cheer) data.bits = msg.cheer.bits;
     if (msg.reply) data.reply_to = msg.reply.parentUserDisplayName;
     chatDebugLog?.log(msg.user.displayName, data);
+
+    // Track recent chatters
+    recentChatters.push({ userId: msg.user.id, timestamp: Date.now() });
+
+    // Evaluate chat-based armed triggers
+    fireTriggerFor({
+      sourceType: 'message',
+      userId: msg.user.id,
+      text: msg.text,
+      emotes: msg.emotes.map(e => e.name),
+      bits: msg.cheer?.bits,
+    });
   });
 
   chat.on('auth_error', () => {
@@ -797,6 +1194,51 @@ async function connectToTwitch(): Promise<void> {
     chatDebugLog?.log('twitch:error', { message: err.message });
   });
 
+  chat.on('follow', (event) => {
+    chatDebugLog?.log(event.user.displayName, { type: 'follow' });
+    fireTriggerFor({ sourceType: 'follow', userId: event.user.id });
+  });
+
+  chat.on('subscribe', (event) => {
+    chatDebugLog?.log(event.user.displayName, { type: 'subscribe', tier: event.tier, gift: event.isGift });
+    fireTriggerFor({ sourceType: 'subscribe', userId: event.user.id });
+  });
+
+  chat.on('subscriptionMessage', (event) => {
+    chatDebugLog?.log(event.user.displayName, { type: 'resub', tier: event.tier, months: event.cumulativeMonths });
+    fireTriggerFor({ sourceType: 'subscribe', userId: event.user.id });
+  });
+
+  chat.on('subscriptionGift', (event) => {
+    chatDebugLog?.log(event.gifter?.displayName ?? 'Anonymous', { type: 'giftSub', tier: event.tier, total: event.total });
+    fireTriggerFor({ sourceType: 'subscriptionGift', userId: event.gifter?.id });
+  });
+
+  chat.on('cheer', (event) => {
+    chatDebugLog?.log(event.user?.displayName ?? 'Anonymous', { type: 'cheer', bits: event.bits });
+    fireTriggerFor({ sourceType: 'cheer', userId: event.user?.id, bits: event.bits });
+  });
+
+  chat.on('raid', (event) => {
+    chatDebugLog?.log(event.fromBroadcaster.displayName, { type: 'raid', viewers: event.viewerCount });
+    fireTriggerFor({ sourceType: 'raid', userId: event.fromBroadcaster.id, viewers: event.viewerCount });
+  });
+
+  chat.on('channelPoints', (event) => {
+    chatDebugLog?.log(event.user.displayName, { type: 'channelPoints', reward: event.reward.title });
+    fireTriggerFor({ sourceType: 'channelPoints', userId: event.user.id, rewardTitle: event.reward.title });
+  });
+
+  chat.on('streamOnline', () => {
+    chatDebugLog?.log('stream', { type: 'online' });
+    fireTriggerFor({ sourceType: 'streamOnline' });
+  });
+
+  chat.on('streamOffline', () => {
+    chatDebugLog?.log('stream', { type: 'offline' });
+    fireTriggerFor({ sourceType: 'streamOffline' });
+  });
+
   try {
     await chat.preloadEmotes();
     await chat.connect();
@@ -804,6 +1246,7 @@ async function connectToTwitch(): Promise<void> {
     config.twitch.channelId = channelId;
     config.twitch.userId = userId;
     config.twitch.clientId = clientId;
+    config.twitch.subscriptions = [...selectedTwitchSubs];
     saveConfig(config);
   } catch (err) {
     console.error('Failed to connect to Twitch:', err);
@@ -979,6 +1422,7 @@ inputScaleY.value = String(config.mouseCapture.scale.y);
 inputTwitchChannelId.value = config.twitch.channelId;
 inputTwitchUserId.value = config.twitch.userId;
 inputTwitchClientId.value = config.twitch.clientId;
+renderSubPicker();
 
 // Handle resize
 window.addEventListener('resize', () => {

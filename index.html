@@ -119,6 +119,9 @@
       color: #888;
       min-width: 100px;
     }
+    .param-row .toggle-switch {
+      min-width: auto;
+    }
     .param-row input {
       width: 80px;
       padding: 6px 8px;
@@ -372,7 +375,7 @@
       </div>
       <div class="effect-section" style="background:#141422;border-color:#1e1e38;padding:10px">
         <div class="effect-header" style="margin-bottom:8px">
-          <span class="effect-title" style="font-size:12px;color:#999">Twitch Chat</span>
+          <span class="effect-title" style="font-size:12px;color:#999">Twitch</span>
           <span id="twitch-connection-status" class="connection-status" style="color:#e94560;font-size:11px">Disconnected</span>
         </div>
         <div class="effect-params">
@@ -391,6 +394,23 @@
           <div class="param-row">
             <label>Access Token:</label>
             <input type="password" id="input-twitch-access-token" placeholder="OAuth token">
+          </div>
+        </div>
+        <div class="tag-picker" style="margin-top:10px">
+          <div class="tag-picker-label">Subscriptions</div>
+          <div class="tag-picker-container">
+            <div class="tag-picker-column">
+              <div class="tag-picker-column-label">Available</div>
+              <select id="subs-available" multiple class="tag-picker-select"></select>
+            </div>
+            <div class="tag-picker-buttons">
+              <button id="btn-sub-add" class="panel-btn">&gt;&gt;</button>
+              <button id="btn-sub-remove" class="panel-btn">&lt;&lt;</button>
+            </div>
+            <div class="tag-picker-column">
+              <div class="tag-picker-column-label">Active</div>
+              <select id="subs-selected" multiple class="tag-picker-select"></select>
+            </div>
           </div>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px">
@@ -597,41 +617,40 @@
         </div>
       </div>
 
-      <!-- Burst Effect -->
+      <!-- New Event -->
       <div class="effect-section">
         <div class="effect-header" style="margin-bottom:8px">
-          <span class="effect-title">Burst</span>
+          <span class="effect-title">New Event</span>
         </div>
         <div class="effect-params">
           <div class="param-row">
+            <label>Type:</label>
+            <select id="effect-type-select" class="select-input" style="width:120px;margin-left:auto">
+              <option value="burst">Burst</option>
+              <option value="rain">Rain</option>
+              <option value="stream">Stream</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Burst params -->
+        <div id="params-burst" class="effect-params">
+          <div class="param-row">
             <label>Interval (ms):</label>
-            <input type="number" id="burst-interval" value="2000" min="100">
+            <input type="number" id="burst-interval" value="2000" min="100" style="margin-left:auto">
           </div>
           <div class="param-row">
             <label>Count:</label>
-            <input type="number" id="burst-count" value="8" min="1">
+            <input type="number" id="burst-count" value="8" min="1" style="margin-left:auto">
           </div>
           <div class="param-row">
             <label>Force:</label>
-            <input type="number" id="burst-force" value="15" min="1">
+            <input type="number" id="burst-force" value="15" min="1" style="margin-left:auto">
           </div>
         </div>
-        <div class="effect-entities">
-          <div class="entities-header">
-            <span>Entity Types</span>
-            <button class="add-entity-btn" id="burst-add-entity">+ Add</button>
-          </div>
-          <div class="entity-list" id="burst-entity-list"></div>
-        </div>
-        <button id="btn-create-burst" class="panel-btn panel-btn-success" style="width:100%;margin-top:12px">Create</button>
-      </div>
 
-      <!-- Rain Effect -->
-      <div class="effect-section">
-        <div class="effect-header" style="margin-bottom:8px">
-          <span class="effect-title">Rain</span>
-        </div>
-        <div class="effect-params">
+        <!-- Rain params -->
+        <div id="params-rain" class="effect-params" style="display:none">
           <div class="param-row">
             <label>Spawn Rate (/sec):</label>
             <input type="number" id="rain-spawn-rate" value="5" min="0.1" step="0.5">
@@ -641,22 +660,9 @@
             <input type="number" id="rain-spawn-width" value="1" min="0.1" max="1" step="0.1">
           </div>
         </div>
-        <div class="effect-entities">
-          <div class="entities-header">
-            <span>Entity Types</span>
-            <button class="add-entity-btn" id="rain-add-entity">+ Add</button>
-          </div>
-          <div class="entity-list" id="rain-entity-list"></div>
-        </div>
-        <button id="btn-create-rain" class="panel-btn panel-btn-success" style="width:100%;margin-top:12px">Create</button>
-      </div>
 
-      <!-- Stream Effect -->
-      <div class="effect-section">
-        <div class="effect-header" style="margin-bottom:8px">
-          <span class="effect-title">Stream</span>
-        </div>
-        <div class="effect-params">
+        <!-- Stream params -->
+        <div id="params-stream" class="effect-params" style="display:none">
           <div class="param-row">
             <label>Origin X (%):</label>
             <input type="number" id="stream-origin-x" value="50" min="-50" max="150" step="5">
@@ -682,14 +688,67 @@
             <input type="number" id="stream-cone-angle" value="15" min="0" max="180" step="5">
           </div>
         </div>
+
+        <!-- Trigger section -->
         <div class="effect-entities">
           <div class="entities-header">
-            <span>Entity Types</span>
-            <button class="add-entity-btn" id="stream-add-entity">+ Add</button>
+            <span>Trigger</span>
+            <button class="add-entity-btn" id="btn-add-condition">+ Add Condition</button>
           </div>
-          <div class="entity-list" id="stream-entity-list"></div>
+          <div id="trigger-combinator-row" class="param-row" style="display:none;margin-bottom:8px">
+            <label>Match:</label>
+            <select id="trigger-combinator" class="select-input" style="width:80px">
+              <option value="OR">ANY</option>
+              <option value="AND">ALL</option>
+            </select>
+          </div>
+          <div class="entity-list" id="trigger-condition-list"></div>
+          <div id="trigger-threshold-row" class="param-row entities-header" style="display:none;margin-top:8px">
+            <span>Fire after:</span>
+            <input type="number" id="trigger-threshold" value="1" min="1" style="width:50px;margin-left:auto">
+            <span style="font-size:11px;color:#888">matches</span>
+          </div>
         </div>
-        <button id="btn-create-stream" class="panel-btn panel-btn-success" style="width:100%;margin-top:12px">Create</button>
+
+        <!-- Entities section -->
+        <div class="effect-entities">
+          <div class="entities-header">
+            <span>Entities</span>
+            <button class="add-entity-btn" id="btn-add-entity">+ Add Entity</button>
+          </div>
+          <div class="entity-list" id="new-effect-entity-list"></div>
+        </div>
+
+        <!-- Lifecycle section -->
+        <div class="effect-entities">
+          <div class="entities-header">
+            <span>Lifecycle</span>
+          </div>
+          <div class="effect-params" style="margin-bottom:0">
+            <div class="param-row">
+              <label>Duration:</label>
+              <select id="lifecycle-duration-type" class="select-input" style="width:110px">
+                <option value="none">No limit</option>
+                <option value="time">Time (sec)</option>
+                <option value="count">Entity count</option>
+              </select>
+              <input type="number" id="lifecycle-duration-value" value="10" min="1" style="width:60px;display:none">
+            </div>
+            <div class="param-row">
+              <label>Max fires:</label>
+              <input type="number" id="lifecycle-max-triggers" placeholder="∞" min="1">
+            </div>
+            <div class="param-row">
+              <label>Re-trigger:</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="lifecycle-allow-retrigger">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <button id="btn-create-effect" class="panel-btn panel-btn-success" style="width:100%;margin-top:12px">Create</button>
       </div>
     </div>
   </div>

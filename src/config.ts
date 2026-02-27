@@ -19,6 +19,7 @@ export interface AppConfig {
     channelId: string;
     userId: string;
     clientId: string;
+    subscriptions: string[];
   };
   eventMappings: EventMapping[];
 }
@@ -54,6 +55,7 @@ const DEFAULT_CONFIG: AppConfig = {
     channelId: '',
     userId: '',
     clientId: '',
+    subscriptions: ['chat'],
   },
   eventMappings: []
 };
