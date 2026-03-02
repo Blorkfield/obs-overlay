@@ -15,8 +15,8 @@ importers:
         specifier: ^0.8.10
         version: 0.8.10
       '@blorkfield/twitch-integration':
-        specifier: ^0.4.0
-        version: 0.4.0(ws@8.19.0)
+        specifier: ^0.5.1
+        version: 0.5.1(ws@8.19.0)
       express:
         specifier: ^4.22.1
         version: 4.22.1
@@ -56,8 +56,8 @@ packages:
   '@blorkfield/overlay-core@0.8.10':
     resolution: {integrity: sha512-f7F8d2BOZgIaEb/oxj0EJFz0UBXGAL1rFk/Xn+ha/Fwz3Mq56rNnquhcIz88Ggn+fJ+5QSF44O9SbMmoeHEQBw==}
 
-  '@blorkfield/twitch-integration@0.4.0':
-    resolution: {integrity: sha512-ExAdwkHgmuRAPj2+Uh6RKmdBS1gPq/rytZpdbuQRuXHpeNy4Lz0altFRY17ucJHWO9P98MIFpMwdZS96CVFnQA==}
+  '@blorkfield/twitch-integration@0.5.1':
+    resolution: {integrity: sha512-WlK9xvHwxUCW9uVE3PsYHx42N/lz6ip27UeFe9qIHC1f6YpBAZ8dAYzoV4jgWHoz7RG877RhswW5ps39OF8aTw==}
     peerDependencies:
       ws: ^8.0.0
     peerDependenciesMeta:
@@ -1210,7 +1210,7 @@ snapshots:
       opentype.js: 1.3.4
       sirv: 3.0.2
 
-  '@blorkfield/twitch-integration@0.4.0(ws@8.19.0)':
+  '@blorkfield/twitch-integration@0.5.1(ws@8.19.0)':
     dependencies:
       eventemitter3: 5.0.4
     optionalDependencies:

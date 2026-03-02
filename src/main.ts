@@ -5,10 +5,12 @@ import { OBSClient } from './obs/index.js';
 import { loadConfig, saveConfig } from './config.js';
 import { TwitchClient } from '@blorkfield/twitch-integration';
 import type { NormalizedMessage, TwitchClientSubscriptions } from '@blorkfield/twitch-integration';
+import { TwitchSimulator, USER_POOL } from '@blorkfield/twitch-integration/simulation';
+import type { ActionType, SimUser } from '@blorkfield/twitch-integration/simulation';
 
 // === Effect Event Types ===
-type EffectTriggerConditionType = 'text' | 'emote' | 'bits' | 'follow' | 'subscribe' | 'subscriptionGift' | 'cheer' | 'raid' | 'channelPoints' | 'streamOnline' | 'streamOffline';
-type TriggerSourceType = 'message' | 'follow' | 'subscribe' | 'subscriptionGift' | 'cheer' | 'raid' | 'channelPoints' | 'streamOnline' | 'streamOffline';
+type EffectTriggerConditionType = 'message' | 'text' | 'emote' | 'bits' | 'follow' | 'subscribe' | 'subscriptionGift' | 'cheer' | 'raid' | 'channelPoints' | 'streamOnline' | 'streamOffline' | 'channelUpdate' | 'hypeTrain' | 'adBreak' | 'poll' | 'prediction' | 'shoutout';
+type TriggerSourceType = 'message' | 'follow' | 'subscribe' | 'subscriptionGift' | 'cheer' | 'raid' | 'channelPoints' | 'streamOnline' | 'streamOffline' | 'channelUpdate' | 'hypeTrain' | 'adBreak' | 'poll' | 'prediction' | 'shoutout';
 interface TriggerEventData {
   sourceType: TriggerSourceType;
   userId?: string;
@@ -127,6 +129,35 @@ const subsSelected = document.getElementById('subs-selected') as HTMLSelectEleme
 const btnSubAdd = document.getElementById('btn-sub-add') as HTMLButtonElement;
 const btnSubRemove = document.getElementById('btn-sub-remove') as HTMLButtonElement;
 
+// Twitch mode toggle
+const btnTwitchModeReal = document.getElementById('btn-twitch-mode-real') as HTMLButtonElement;
+const btnTwitchModeSim = document.getElementById('btn-twitch-mode-sim') as HTMLButtonElement;
+const twitchRealContent = document.getElementById('twitch-real-content') as HTMLDivElement;
+const twitchSimContent = document.getElementById('twitch-sim-content') as HTMLDivElement;
+
+// Sim — user selector
+const simUserSelect = document.getElementById('sim-user-select') as HTMLSelectElement;
+
+// Sim — manual fire inputs
+const simChatText = document.getElementById('sim-chat-text') as HTMLInputElement;
+const simCheerBits = document.getElementById('sim-cheer-bits') as HTMLInputElement;
+const simRaidViewers = document.getElementById('sim-raid-viewers') as HTMLInputElement;
+
+// Sim — manual fire buttons
+const btnSimFireChat = document.getElementById('btn-sim-fire-chat') as HTMLButtonElement;
+const btnSimFireFollow = document.getElementById('btn-sim-fire-follow') as HTMLButtonElement;
+const btnSimFireSubscribe = document.getElementById('btn-sim-fire-subscribe') as HTMLButtonElement;
+const btnSimFireGiftSub = document.getElementById('btn-sim-fire-giftsub') as HTMLButtonElement;
+const btnSimFireCheer = document.getElementById('btn-sim-fire-cheer') as HTMLButtonElement;
+const btnSimFireRaid = document.getElementById('btn-sim-fire-raid') as HTMLButtonElement;
+
+// Sim — scenario
+const simScenarioDuration = document.getElementById('sim-scenario-duration') as HTMLInputElement;
+const simScenarioRate = document.getElementById('sim-scenario-rate') as HTMLInputElement;
+const simScenarioActions = document.getElementById('sim-scenario-actions') as HTMLDivElement;
+const btnSimRun = document.getElementById('btn-sim-run') as HTMLButtonElement;
+const btnSimStop = document.getElementById('btn-sim-stop') as HTMLButtonElement;
+
 // Panel elements
 const connectionPanel = document.getElementById('connection-panel') as HTMLDivElement;
 const connectionDragHandle = document.getElementById('connection-drag-handle') as HTMLDivElement;
@@ -183,6 +214,9 @@ let debugLog: ReturnType<typeof TabManager.prototype.createDebugLog> | null = nu
 
 // Twitch state
 let twitchChat: TwitchClient | null = null;
+let twitchSimulator: TwitchSimulator | null = null;
+let twitchMode: 'real' | 'sim' = 'real';
+let simActiveActions: Set<ActionType> = new Set(['chat', 'follow', 'subscribe', 'resub', 'giftsub', 'cheer', 'raid']);
 let chatDebugLog: ReturnType<typeof TabManager.prototype.createDebugLog> | null = null;
 
 const TWITCH_SUBS: Array<{ key: keyof TwitchClientSubscriptions; label: string }> = [
@@ -232,6 +266,22 @@ function moveSubsToAvailable(): void {
 
 btnSubAdd.addEventListener('click', moveSubsToSelected);
 btnSubRemove.addEventListener('click', moveSubsToAvailable);
+
+function populateSimUserSelect(): void {
+  simUserSelect.innerHTML = '<option value="random">Random</option>';
+  for (const user of USER_POOL) {
+    const opt = document.createElement('option');
+    opt.value = user.id;
+    opt.textContent = user.displayName;
+    simUserSelect.appendChild(opt);
+  }
+}
+
+function getSimUser(): SimUser | undefined {
+  const val = simUserSelect.value;
+  if (val === 'random') return undefined;
+  return USER_POOL.find(u => u.id === val);
+}
 
 // Effect event state
 const armedEvents = new Map<string, ArmedEvent>();
@@ -552,11 +602,12 @@ function addConditionRow(): void {
     text: 'text to match', emote: 'emote name', bits: 'min bits',
     cheer: 'min bits', raid: 'min viewers', channelPoints: 'reward title (blank = any)',
   };
-  const condNoValue = new Set<EffectTriggerConditionType>(['follow', 'subscribe', 'subscriptionGift', 'streamOnline', 'streamOffline']);
+  const condNoValue = new Set<EffectTriggerConditionType>(['message', 'follow', 'subscribe', 'subscriptionGift', 'streamOnline', 'streamOffline', 'channelUpdate', 'hypeTrain', 'adBreak', 'poll', 'prediction', 'shoutout']);
   row.innerHTML = `
     <div class="entity-row entity-row-header" style="margin-bottom:0">
       <select class="condition-type select-input" style="flex:1;font-size:11px;padding:5px 8px">
         <optgroup label="Chat message">
+          <option value="message">Any message</option>
           <option value="text">Contains text</option>
           <option value="emote">Contains emote</option>
           <option value="bits">Bits cheer ≥ (chat)</option>
@@ -568,6 +619,12 @@ function addConditionRow(): void {
           <option value="cheer">Cheer bits ≥</option>
           <option value="raid">Raid viewers ≥</option>
           <option value="channelPoints">Channel points reward</option>
+          <option value="hypeTrain">Hype train begins</option>
+          <option value="poll">Poll begins</option>
+          <option value="prediction">Prediction begins</option>
+          <option value="adBreak">Ad break</option>
+          <option value="channelUpdate">Channel update</option>
+          <option value="shoutout">Shoutout</option>
           <option value="streamOnline">Stream online</option>
           <option value="streamOffline">Stream offline</option>
         </optgroup>
@@ -707,7 +764,7 @@ function readEffectDefinition(): EffectDefinition {
 }
 
 function evaluateTrigger(trigger: TriggerConfig, data: TriggerEventData): boolean {
-  const chatTypes = new Set(['text', 'emote', 'bits']);
+  const chatTypes = new Set(['message', 'text', 'emote', 'bits']);
   const results = trigger.conditions.map(cond => {
     // Gate: chat conditions only fire from message events; channel conditions only from their own source
     const expectedSource: TriggerSourceType = chatTypes.has(cond.type) ? 'message' : (cond.type as TriggerSourceType);
@@ -1115,38 +1172,35 @@ function updateTwitchUI(state: 'connected' | 'disconnected' | 'connecting' | 'au
 
   const connected = state === 'connected';
   const connecting = state === 'connecting';
-  btnTwitchConnect.disabled = connected || connecting;
+  const busy = connected || connecting;
+  btnTwitchConnect.disabled = busy;
   btnTwitchDisconnect.disabled = !connected;
-  inputTwitchChannelId.disabled = connected || connecting;
-  inputTwitchUserId.disabled = connected || connecting;
-  inputTwitchClientId.disabled = connected || connecting;
-  inputTwitchAccessToken.disabled = connected || connecting;
-  subsAvailable.disabled = connected || connecting;
-  subsSelected.disabled = connected || connecting;
-  btnSubAdd.disabled = connected || connecting;
-  btnSubRemove.disabled = connected || connecting;
+  inputTwitchChannelId.disabled = busy;
+  inputTwitchUserId.disabled = busy;
+  inputTwitchClientId.disabled = busy;
+  inputTwitchAccessToken.disabled = busy;
+  subsAvailable.disabled = busy;
+  subsSelected.disabled = busy;
+  btnSubAdd.disabled = busy;
+  btnSubRemove.disabled = busy;
+
+  // Sim fire buttons: only enabled when connected in sim mode
+  const simConnected = connected && twitchMode === 'sim';
+  btnSimFireChat.disabled      = !simConnected;
+  btnSimFireFollow.disabled    = !simConnected;
+  btnSimFireSubscribe.disabled = !simConnected;
+  btnSimFireGiftSub.disabled   = !simConnected;
+  btnSimFireCheer.disabled     = !simConnected;
+  btnSimFireRaid.disabled      = !simConnected;
+  btnSimRun.disabled  = !simConnected || (twitchSimulator?.running ?? false);
+  btnSimStop.disabled = !(twitchSimulator?.running ?? false);
+
+  // Mode pills locked while connected or connecting
+  btnTwitchModeReal.disabled = busy;
+  btnTwitchModeSim.disabled  = busy;
 }
 
-async function connectToTwitch(): Promise<void> {
-  const channelId = inputTwitchChannelId.value.trim();
-  const userId = inputTwitchUserId.value.trim();
-  const clientId = inputTwitchClientId.value.trim();
-  const accessToken = inputTwitchAccessToken.value.trim();
-
-  if (!channelId || !userId || !clientId || !accessToken) {
-    alert('Please fill in all Twitch fields');
-    return;
-  }
-
-  updateTwitchUI('connecting');
-
-  const subscriptions: TwitchClientSubscriptions = {};
-  for (const key of selectedTwitchSubs) {
-    (subscriptions as Record<string, boolean>)[key] = true;
-  }
-  const chat = new TwitchClient({ channelId, userId, clientId, accessToken, subscriptions });
-  twitchChat = chat;
-
+function wireClientEvents(chat: TwitchClient): void {
   chat.on('connected', () => {
     updateTwitchUI('connected');
     chatDebugLog?.log('twitch', { status: 'connected' });
@@ -1239,6 +1293,63 @@ async function connectToTwitch(): Promise<void> {
     fireTriggerFor({ sourceType: 'streamOffline' });
   });
 
+  chat.on('channelUpdate', (event) => {
+    chatDebugLog?.log('channel', { type: 'update', title: event.title, category: event.categoryName });
+    fireTriggerFor({ sourceType: 'channelUpdate' });
+  });
+
+  chat.on('hypeTrain.begin', () => {
+    chatDebugLog?.log('channel', { type: 'hypeTrain.begin' });
+    fireTriggerFor({ sourceType: 'hypeTrain' });
+  });
+
+  chat.on('adBreak', (event) => {
+    chatDebugLog?.log('channel', { type: 'adBreak', duration: event.durationSeconds });
+    fireTriggerFor({ sourceType: 'adBreak' });
+  });
+
+  chat.on('poll.begin', (event) => {
+    chatDebugLog?.log('channel', { type: 'poll.begin', title: event.title });
+    fireTriggerFor({ sourceType: 'poll' });
+  });
+
+  chat.on('prediction.begin', (event) => {
+    chatDebugLog?.log('channel', { type: 'prediction.begin', title: event.title });
+    fireTriggerFor({ sourceType: 'prediction' });
+  });
+
+  chat.on('shoutout.create', (event) => {
+    chatDebugLog?.log('channel', { type: 'shoutout.create', to: event.toBroadcaster.displayName });
+    fireTriggerFor({ sourceType: 'shoutout' });
+  });
+
+  chat.on('shoutout.receive', (event) => {
+    chatDebugLog?.log('channel', { type: 'shoutout.receive', from: event.fromBroadcaster.displayName });
+    fireTriggerFor({ sourceType: 'shoutout' });
+  });
+}
+
+async function connectToTwitch(): Promise<void> {
+  const channelId = inputTwitchChannelId.value.trim();
+  const userId = inputTwitchUserId.value.trim();
+  const clientId = inputTwitchClientId.value.trim();
+  const accessToken = inputTwitchAccessToken.value.trim();
+
+  if (!channelId || !userId || !clientId || !accessToken) {
+    alert('Please fill in all Twitch fields');
+    return;
+  }
+
+  updateTwitchUI('connecting');
+
+  const subscriptions: TwitchClientSubscriptions = {};
+  for (const key of selectedTwitchSubs) {
+    (subscriptions as Record<string, boolean>)[key] = true;
+  }
+  const chat = new TwitchClient({ channelId, userId, clientId, accessToken, subscriptions });
+  twitchChat = chat;
+  wireClientEvents(chat);
+
   try {
     await chat.preloadEmotes();
     await chat.connect();
@@ -1261,6 +1372,38 @@ function disconnectFromTwitch(): void {
   twitchChat.disconnect();
   twitchChat = null;
   updateTwitchUI('disconnected');
+}
+
+async function connectSimulated(): Promise<void> {
+  updateTwitchUI('connecting');
+  const sim = new TwitchSimulator();
+  twitchSimulator = sim;
+  twitchChat = sim.client;
+  wireClientEvents(sim.client);
+  try {
+    await sim.connect();
+  } catch (err) {
+    console.error('Simulator failed to connect:', err);
+    updateTwitchUI('disconnected');
+    twitchSimulator = null;
+    twitchChat = null;
+  }
+}
+
+function disconnectSimulated(): void {
+  if (!twitchSimulator) return;
+  twitchSimulator.disconnect();
+  twitchSimulator = null;
+}
+
+function switchTwitchMode(mode: 'real' | 'sim'): void {
+  twitchMode = mode;
+  twitchRealContent.style.display = mode === 'real' ? '' : 'none';
+  twitchSimContent.style.display  = mode === 'sim'  ? '' : 'none';
+  btnTwitchModeReal.style.background = mode === 'real' ? '#3a4a6a' : '#2a2a4a';
+  btnTwitchModeReal.style.color      = mode === 'real' ? '#fff'    : '#888';
+  btnTwitchModeSim.style.background  = mode === 'sim'  ? '#3a4a6a' : '#2a2a4a';
+  btnTwitchModeSim.style.color       = mode === 'sim'  ? '#fff'    : '#888';
 }
 
 // OBS event listeners
@@ -1368,8 +1511,66 @@ async function applyBackgroundColor(): Promise<void> {
 // Event listeners
 btnConnect.addEventListener('click', connectToOBS);
 btnDisconnect.addEventListener('click', disconnectFromOBS);
-btnTwitchConnect.addEventListener('click', connectToTwitch);
-btnTwitchDisconnect.addEventListener('click', disconnectFromTwitch);
+btnTwitchConnect.addEventListener('click', () => {
+  if (twitchMode === 'sim') void connectSimulated();
+  else void connectToTwitch();
+});
+btnTwitchDisconnect.addEventListener('click', () => {
+  if (twitchMode === 'sim') disconnectSimulated();
+  else disconnectFromTwitch();
+});
+
+btnTwitchModeReal.addEventListener('click', () => switchTwitchMode('real'));
+btnTwitchModeSim.addEventListener('click',  () => switchTwitchMode('sim'));
+
+// Sim manual fire buttons
+btnSimFireChat.addEventListener('click', () => {
+  const text = simChatText.value.trim() || undefined;
+  twitchSimulator?.fireChat(text, getSimUser());
+});
+btnSimFireFollow.addEventListener('click',    () => twitchSimulator?.fireFollow(getSimUser()));
+btnSimFireSubscribe.addEventListener('click', () => twitchSimulator?.fireSubscribe(getSimUser()));
+btnSimFireGiftSub.addEventListener('click',   () => twitchSimulator?.fireGiftSub(undefined, getSimUser()));
+btnSimFireCheer.addEventListener('click', () => {
+  twitchSimulator?.fireCheer(parseInt(simCheerBits.value) || 100, undefined, getSimUser());
+});
+btnSimFireRaid.addEventListener('click', () => {
+  twitchSimulator?.fireRaid(parseInt(simRaidViewers.value) || 50, getSimUser());
+});
+
+// Sim action chip toggles
+simScenarioActions.querySelectorAll<HTMLButtonElement>('.sim-action-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const action = chip.dataset.action as ActionType;
+    if (simActiveActions.has(action)) {
+      if (simActiveActions.size > 1) {
+        simActiveActions.delete(action);
+        chip.style.borderColor = '#3a3a5a';
+        chip.style.color = '#666';
+      }
+    } else {
+      simActiveActions.add(action);
+      chip.style.borderColor = '#4a90d9';
+      chip.style.color = '#4a90d9';
+    }
+  });
+});
+
+// Sim scenario run/stop
+btnSimRun.addEventListener('click', () => {
+  if (!twitchSimulator) return;
+  twitchSimulator.run({
+    duration: parseInt(simScenarioDuration.value) || 30,
+    rate: parseFloat(simScenarioRate.value) || 1,
+    actions: Array.from(simActiveActions),
+    onComplete: () => updateTwitchUI('connected'),
+  });
+  updateTwitchUI('connected');
+});
+btnSimStop.addEventListener('click', () => {
+  twitchSimulator?.stop();
+  updateTwitchUI('connected');
+});
 
 btnLookup.addEventListener('click', async () => {
   const uid = lookupIdInput.value.trim();
@@ -1423,6 +1624,7 @@ inputTwitchChannelId.value = config.twitch.channelId;
 inputTwitchUserId.value = config.twitch.userId;
 inputTwitchClientId.value = config.twitch.clientId;
 renderSubPicker();
+populateSimUserSelect();
 
 // Handle resize
 window.addEventListener('resize', () => {
