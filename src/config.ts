@@ -15,6 +15,12 @@ export interface AppConfig {
     offset: { x: number; y: number };
     scale: { x: number; y: number };
   };
+  twitch: {
+    channelId: string;
+    userId: string;
+    clientId: string;
+    subscriptions: string[];
+  };
   eventMappings: EventMapping[];
 }
 
@@ -45,6 +51,12 @@ const DEFAULT_CONFIG: AppConfig = {
     offset: { x: 0, y: 0 },
     scale: { x: 1, y: 1 }
   },
+  twitch: {
+    channelId: '',
+    userId: '',
+    clientId: '',
+    subscriptions: ['chat'],
+  },
   eventMappings: []
 };
 
@@ -67,7 +79,8 @@ export function loadConfig(): AppConfig {
           ...parsed.mouseCapture,
           offset: { ...DEFAULT_CONFIG.mouseCapture.offset, ...parsed.mouseCapture?.offset },
           scale: { ...DEFAULT_CONFIG.mouseCapture.scale, ...parsed.mouseCapture?.scale }
-        }
+        },
+        twitch: { ...DEFAULT_CONFIG.twitch, ...parsed.twitch },
       };
     }
   } catch (err) {

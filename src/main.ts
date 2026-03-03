@@ -1,8 +1,52 @@
-import { OverlayScene, setLogLevel, TAGS } from '@blorkfield/overlay-core';
-import { TabManager } from '@blorkfield/blork-tabs';
+import { OverlayScene, setLogLevel, TAGS, type EffectObjectConfig } from '@blorkfield/overlay-core';
+import { TabManager, togglePin } from '@blorkfield/blork-tabs';
 import '@blorkfield/blork-tabs/styles.css';
 import { OBSClient } from './obs/index.js';
 import { loadConfig, saveConfig } from './config.js';
+import { TwitchClient } from '@blorkfield/twitch-integration';
+import type { NormalizedMessage, TwitchClientSubscriptions } from '@blorkfield/twitch-integration';
+import { TwitchSimulator, USER_POOL } from '@blorkfield/twitch-integration/simulation';
+import type { ActionType, SimUser } from '@blorkfield/twitch-integration/simulation';
+
+// === Effect Event Types ===
+type EffectTriggerConditionType = 'message' | 'text' | 'emote' | 'bits' | 'follow' | 'subscribe' | 'subscriptionGift' | 'cheer' | 'raid' | 'channelPoints' | 'streamOnline' | 'streamOffline' | 'channelUpdate' | 'hypeTrain' | 'adBreak' | 'poll' | 'prediction' | 'shoutout';
+type TriggerSourceType = 'message' | 'follow' | 'subscribe' | 'subscriptionGift' | 'cheer' | 'raid' | 'channelPoints' | 'streamOnline' | 'streamOffline' | 'channelUpdate' | 'hypeTrain' | 'adBreak' | 'poll' | 'prediction' | 'shoutout';
+interface TriggerEventData {
+  sourceType: TriggerSourceType;
+  userId?: string;
+  text?: string;
+  emotes?: string[];
+  bits?: number;
+  viewers?: number;
+  rewardTitle?: string;
+}
+interface TriggerCondition { type: EffectTriggerConditionType; value: string; }
+interface TriggerConfig { conditions: TriggerCondition[]; combinator: 'AND' | 'OR'; fireThreshold: number; }
+type EntitySource = 'shape' | 'url' | 'trigger-sender' | 'recent-chatters';
+interface EntityDefinition { source: EntitySource; color: string; url: string; windowMinutes: number; radius: number; tags: string[]; }
+type DurationType = 'none' | 'time' | 'count';
+interface LifecycleConfig { durationType: DurationType; durationValue: number; maxTriggers: number; allowRetrigger: boolean; }
+interface EffectDefinition {
+  id: string;
+  effectType: 'burst' | 'rain' | 'stream' | 'spawn';
+  trigger: TriggerConfig | null;
+  lifecycle: LifecycleConfig;
+  entities: EntityDefinition[];
+  originType: 'fixed' | 'mouse';
+  originX: number; originY: number;
+  burstInterval: number; burstCount: number; burstForce: number;
+  rainSpawnRate: number; rainSpawnWidth: number;
+  streamDirection: number; streamSpawnRate: number; streamForce: number; streamConeAngle: number;
+  spawnCount: number; spawnForce: number;
+}
+interface ArmedEvent {
+  definition: EffectDefinition;
+  matchCount: number;
+  triggerCount: number;
+  isActive: boolean;
+  activeEffectId: string | null;
+  stopTimer: ReturnType<typeof setTimeout> | null;
+}
 
 // Load config
 let config = loadConfig();
@@ -69,6 +113,52 @@ const obsScene = document.getElementById('obs-scene') as HTMLSpanElement;
 const obsStream = document.getElementById('obs-stream') as HTMLSpanElement;
 const obsRecording = document.getElementById('obs-recording') as HTMLSpanElement;
 const eventLogContainer = document.getElementById('event-log-container') as HTMLDivElement;
+const chatLogContainer = document.getElementById('chat-log-container') as HTMLDivElement;
+const lookupIdInput = document.getElementById('lookup-id') as HTMLInputElement;
+const btnLookup = document.getElementById('btn-lookup') as HTMLButtonElement;
+const lookupResult = document.getElementById('lookup-result') as HTMLDivElement;
+
+// Twitch connection panel elements
+const inputTwitchChannelId = document.getElementById('input-twitch-channel-id') as HTMLInputElement;
+const inputTwitchUserId = document.getElementById('input-twitch-user-id') as HTMLInputElement;
+const inputTwitchClientId = document.getElementById('input-twitch-client-id') as HTMLInputElement;
+const inputTwitchAccessToken = document.getElementById('input-twitch-access-token') as HTMLInputElement;
+const btnTwitchConnect = document.getElementById('btn-twitch-connect') as HTMLButtonElement;
+const btnTwitchDisconnect = document.getElementById('btn-twitch-disconnect') as HTMLButtonElement;
+const twitchConnectionStatus = document.getElementById('twitch-connection-status') as HTMLSpanElement;
+const subsAvailable = document.getElementById('subs-available') as HTMLSelectElement;
+const subsSelected = document.getElementById('subs-selected') as HTMLSelectElement;
+const btnSubAdd = document.getElementById('btn-sub-add') as HTMLButtonElement;
+const btnSubRemove = document.getElementById('btn-sub-remove') as HTMLButtonElement;
+
+// Twitch mode toggle
+const btnTwitchModeReal = document.getElementById('btn-twitch-mode-real') as HTMLButtonElement;
+const btnTwitchModeSim = document.getElementById('btn-twitch-mode-sim') as HTMLButtonElement;
+const twitchRealContent = document.getElementById('twitch-real-content') as HTMLDivElement;
+const twitchSimContent = document.getElementById('twitch-sim-content') as HTMLDivElement;
+
+// Sim — user selector
+const simUserSelect = document.getElementById('sim-user-select') as HTMLSelectElement;
+
+// Sim — manual fire inputs
+const simChatText = document.getElementById('sim-chat-text') as HTMLInputElement;
+const simCheerBits = document.getElementById('sim-cheer-bits') as HTMLInputElement;
+const simRaidViewers = document.getElementById('sim-raid-viewers') as HTMLInputElement;
+
+// Sim — manual fire buttons
+const btnSimFireChat = document.getElementById('btn-sim-fire-chat') as HTMLButtonElement;
+const btnSimFireFollow = document.getElementById('btn-sim-fire-follow') as HTMLButtonElement;
+const btnSimFireSubscribe = document.getElementById('btn-sim-fire-subscribe') as HTMLButtonElement;
+const btnSimFireGiftSub = document.getElementById('btn-sim-fire-giftsub') as HTMLButtonElement;
+const btnSimFireCheer = document.getElementById('btn-sim-fire-cheer') as HTMLButtonElement;
+const btnSimFireRaid = document.getElementById('btn-sim-fire-raid') as HTMLButtonElement;
+
+// Sim — scenario
+const simScenarioDuration = document.getElementById('sim-scenario-duration') as HTMLInputElement;
+const simScenarioRate = document.getElementById('sim-scenario-rate') as HTMLInputElement;
+const simScenarioActions = document.getElementById('sim-scenario-actions') as HTMLDivElement;
+const btnSimRun = document.getElementById('btn-sim-run') as HTMLButtonElement;
+const btnSimStop = document.getElementById('btn-sim-stop') as HTMLButtonElement;
 
 // Panel elements
 const connectionPanel = document.getElementById('connection-panel') as HTMLDivElement;
@@ -91,6 +181,28 @@ const effectsDragHandle = document.getElementById('effects-drag-handle') as HTML
 const effectsCollapseBtn = document.getElementById('effects-collapse') as HTMLButtonElement;
 const effectsContent = document.getElementById('effects-content') as HTMLDivElement;
 
+// Effects panel elements
+const activeEffectsList = document.getElementById('active-effects-list') as HTMLDivElement;
+const btnStopAllEffects = document.getElementById('btn-stop-all-effects') as HTMLButtonElement;
+const effectTypeSelect = document.getElementById('effect-type-select') as HTMLSelectElement;
+const originSection = document.getElementById('origin-section') as HTMLDivElement;
+const btnOriginFixed = document.getElementById('btn-origin-fixed') as HTMLButtonElement;
+const btnOriginMouse = document.getElementById('btn-origin-mouse') as HTMLButtonElement;
+const originFixedRow = document.getElementById('origin-fixed-row') as HTMLDivElement;
+const btnAddCondition = document.getElementById('btn-add-condition') as HTMLButtonElement;
+const triggerConditionList = document.getElementById('trigger-condition-list') as HTMLDivElement;
+const triggerCombinatorRow = document.getElementById('trigger-combinator-row') as HTMLDivElement;
+const triggerCombinator = document.getElementById('trigger-combinator') as HTMLSelectElement;
+const triggerThresholdRow = document.getElementById('trigger-threshold-row') as HTMLDivElement;
+const triggerThreshold = document.getElementById('trigger-threshold') as HTMLInputElement;
+const btnAddEntity = document.getElementById('btn-add-entity') as HTMLButtonElement;
+const newEffectEntityList = document.getElementById('new-effect-entity-list') as HTMLDivElement;
+const lifecycleDurationType = document.getElementById('lifecycle-duration-type') as HTMLSelectElement;
+const lifecycleDurationValue = document.getElementById('lifecycle-duration-value') as HTMLInputElement;
+const lifecycleMaxTriggers = document.getElementById('lifecycle-max-triggers') as HTMLInputElement;
+const lifecycleAllowRetrigger = document.getElementById('lifecycle-allow-retrigger') as HTMLInputElement;
+const btnCreateEffect = document.getElementById('btn-create-effect') as HTMLButtonElement;
+
 const inputPanel = document.getElementById('input-panel') as HTMLDivElement;
 const inputDragHandle = document.getElementById('input-drag-handle') as HTMLDivElement;
 const inputCollapseBtn = document.getElementById('input-collapse') as HTMLButtonElement;
@@ -105,6 +217,94 @@ let mouseWs: WebSocket | null = null;
 
 // Debug log (initialized later with TabManager)
 let debugLog: ReturnType<typeof TabManager.prototype.createDebugLog> | null = null;
+
+// Mouse position (canvas space, updated from WebSocket)
+let mouseX = 0;
+let mouseY = 0;
+let mouseDataReceived = false;
+
+// Effect origin type for new event form
+let effectOriginType: 'fixed' | 'mouse' = 'fixed';
+
+// Twitch state
+let twitchChat: TwitchClient | null = null;
+let twitchSimulator: TwitchSimulator | null = null;
+let twitchMode: 'real' | 'sim' = 'real';
+let simActiveActions: Set<ActionType> = new Set(['chat', 'follow', 'subscribe', 'resub', 'giftsub', 'cheer', 'raid']);
+let chatDebugLog: ReturnType<typeof TabManager.prototype.createDebugLog> | null = null;
+
+const TWITCH_SUBS: Array<{ key: keyof TwitchClientSubscriptions; label: string }> = [
+  { key: 'chat',          label: 'Chat' },
+  { key: 'follow',        label: 'Follows' },
+  { key: 'subscribe',     label: 'Subscriptions' },
+  { key: 'cheer',         label: 'Cheers / Bits' },
+  { key: 'raid',          label: 'Raids' },
+  { key: 'channelPoints', label: 'Channel Points' },
+  { key: 'streamStatus',  label: 'Stream Status' },
+  { key: 'channelUpdate', label: 'Channel Update' },
+  { key: 'hypeTrain',     label: 'Hype Train' },
+  { key: 'polls',         label: 'Polls' },
+  { key: 'predictions',   label: 'Predictions' },
+  { key: 'adBreak',       label: 'Ad Breaks' },
+  { key: 'shoutouts',     label: 'Shoutouts' },
+];
+
+let selectedTwitchSubs: string[] = [...config.twitch.subscriptions];
+
+function renderSubPicker(): void {
+  subsAvailable.innerHTML = '';
+  subsSelected.innerHTML = '';
+  for (const { key, label } of TWITCH_SUBS) {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = label;
+    if (selectedTwitchSubs.includes(key)) {
+      subsSelected.appendChild(opt);
+    } else {
+      subsAvailable.appendChild(opt);
+    }
+  }
+}
+
+function moveSubsToSelected(): void {
+  const toAdd = Array.from(subsAvailable.selectedOptions).map(o => o.value);
+  selectedTwitchSubs.push(...toAdd.filter(k => !selectedTwitchSubs.includes(k)));
+  renderSubPicker();
+}
+
+function moveSubsToAvailable(): void {
+  const toRemove = Array.from(subsSelected.selectedOptions).map(o => o.value);
+  selectedTwitchSubs = selectedTwitchSubs.filter(k => !toRemove.includes(k));
+  renderSubPicker();
+}
+
+btnSubAdd.addEventListener('click', moveSubsToSelected);
+btnSubRemove.addEventListener('click', moveSubsToAvailable);
+
+function populateSimUserSelect(): void {
+  simUserSelect.innerHTML = '<option value="random">Random</option>';
+  for (const user of USER_POOL) {
+    const opt = document.createElement('option');
+    opt.value = user.id;
+    opt.textContent = user.displayName;
+    simUserSelect.appendChild(opt);
+  }
+}
+
+function getSimUser(): SimUser | undefined {
+  const val = simUserSelect.value;
+  if (val === 'random') return undefined;
+  return USER_POOL.find(u => u.id === val);
+}
+
+// Effect event state
+const armedEvents = new Map<string, ArmedEvent>();
+const recentChatters: Array<{ userId: string; timestamp: number }> = [];
+setInterval(() => {
+  const cutoff = Date.now() - 15 * 60 * 1000;
+  const firstFresh = recentChatters.findIndex(c => c.timestamp >= cutoff);
+  if (firstFresh > 0) recentChatters.splice(0, firstFresh);
+}, 60_000);
 
 // Log click with entity positions
 function logClickWithEntities(source: string, clickX: number, clickY: number, rawX?: number, rawY?: number): void {
@@ -170,6 +370,9 @@ function connectMouseWebSocket(): void {
       if (data.type === 'mouse' || data.type === 'move') {
         // Mouse position update from OBS script - transform to canvas space
         const { x, y } = transformMouseCoordinates(data.x, data.y);
+        mouseX = x;
+        mouseY = y;
+        mouseDataReceived = true;
         scene?.setFollowTarget('mouse', x, y);
         scene?.setFollowTarget('offset', x, y);
         obsClient.updateMousePosition(x, y);
@@ -389,6 +592,566 @@ function moveTagsToAvailable(): void {
 btnTagAdd.addEventListener('click', moveTagsToSelected);
 btnTagRemove.addEventListener('click', moveTagsToAvailable);
 
+// === Effect System ===
+
+const EFFECT_COLORS = ['#e94560', '#4a90d9', '#4ae945', '#d9904a', '#9a4ad9'];
+const effectCounters: Record<string, number> = {};
+
+function nextEffectId(type: string): string {
+  effectCounters[type] = (effectCounters[type] ?? 0) + 1;
+  return `${type}-${effectCounters[type]}`;
+}
+
+function randomEffectColor(): string {
+  return EFFECT_COLORS[Math.floor(Math.random() * EFFECT_COLORS.length)];
+}
+
+function updateTriggerVisibility(): void {
+  const count = triggerConditionList.querySelectorAll('.entity-item').length;
+  triggerCombinatorRow.style.display = count >= 2 ? '' : 'none';
+  triggerThresholdRow.style.display = count >= 1 ? '' : 'none';
+}
+
+function addConditionRow(): void {
+  const row = document.createElement('div');
+  row.className = 'entity-item';
+  const condValuePlaceholders: Partial<Record<EffectTriggerConditionType, string>> = {
+    text: 'text to match', emote: 'emote name', bits: 'min bits',
+    cheer: 'min bits', raid: 'min viewers', channelPoints: 'reward title (blank = any)',
+  };
+  const condNoValue = new Set<EffectTriggerConditionType>(['message', 'follow', 'subscribe', 'subscriptionGift', 'streamOnline', 'streamOffline', 'channelUpdate', 'hypeTrain', 'adBreak', 'poll', 'prediction', 'shoutout']);
+  row.innerHTML = `
+    <div class="entity-row entity-row-header" style="margin-bottom:0">
+      <select class="condition-type select-input" style="flex:1;font-size:11px;padding:5px 8px">
+        <optgroup label="Chat message">
+          <option value="message">Any message</option>
+          <option value="text">Contains text</option>
+          <option value="emote">Contains emote</option>
+          <option value="bits">Bits cheer ≥ (chat)</option>
+        </optgroup>
+        <optgroup label="Channel events">
+          <option value="follow">Follow</option>
+          <option value="subscribe">Subscribe / Resub</option>
+          <option value="subscriptionGift">Gift sub</option>
+          <option value="cheer">Cheer bits ≥</option>
+          <option value="raid">Raid viewers ≥</option>
+          <option value="channelPoints">Channel points reward</option>
+          <option value="hypeTrain">Hype train begins</option>
+          <option value="poll">Poll begins</option>
+          <option value="prediction">Prediction begins</option>
+          <option value="adBreak">Ad break</option>
+          <option value="channelUpdate">Channel update</option>
+          <option value="shoutout">Shoutout</option>
+          <option value="streamOnline">Stream online</option>
+          <option value="streamOffline">Stream offline</option>
+        </optgroup>
+      </select>
+      <input class="condition-value" type="text" placeholder="text to match" style="flex:1;min-width:0;font-size:11px;margin-left:4px">
+      <button class="remove-btn" style="margin-left:4px">×</button>
+    </div>
+  `;
+  const typeSelect = row.querySelector('.condition-type') as HTMLSelectElement;
+  const valueInput = row.querySelector('.condition-value') as HTMLInputElement;
+  typeSelect.addEventListener('change', () => {
+    const t = typeSelect.value as EffectTriggerConditionType;
+    valueInput.style.display = condNoValue.has(t) ? 'none' : '';
+    valueInput.placeholder = condValuePlaceholders[t] ?? 'value';
+  });
+  // Apply initial visibility based on default selected option
+  valueInput.style.display = condNoValue.has(typeSelect.value as EffectTriggerConditionType) ? 'none' : '';
+  (row.querySelector('.remove-btn') as HTMLButtonElement).addEventListener('click', () => {
+    row.remove();
+    updateTriggerVisibility();
+  });
+  triggerConditionList.appendChild(row);
+  updateTriggerVisibility();
+}
+
+function addEntityRow(): void {
+  const row = document.createElement('div');
+  row.className = 'entity-item';
+  row.innerHTML = `
+    <div class="entity-row entity-row-header" style="margin-bottom:6px">
+      <select class="entity-source select-input" style="flex:1;font-size:11px;padding:5px 8px">
+        <option value="shape">Shape</option>
+        <option value="url">Image URL</option>
+        <option value="trigger-sender">Trigger sender</option>
+        <option value="recent-chatters">Recent chatters</option>
+      </select>
+      <button class="remove-btn" style="margin-left:4px">×</button>
+    </div>
+    <div class="entity-row entity-source-config" data-for="shape">
+      <label>Color:</label><input type="color" class="entity-color" value="#4a90d9" style="width:50px;height:26px;padding:2px;border:1px solid #3a3a5a;border-radius:4px;background:#1a1a2e;cursor:pointer">
+    </div>
+    <div class="entity-row entity-source-config" data-for="url" style="display:none">
+      <label>URL:</label><input type="text" class="entity-url" placeholder="https://..." style="flex:1;min-width:0;font-size:11px">
+    </div>
+    <div class="entity-row entity-source-config" data-for="recent-chatters" style="display:none">
+      <label style="width:30px">Window (min):</label>
+        <input type="number" class="entity-window" value="5" min="1" style="width:50px">
+      <label style="font-size:11px;color:#888;flex-shrink:0;margin-left:4px">All</label>
+      <label class="toggle-switch" style="flex-shrink:0">
+        <input type="checkbox" class="entity-all-chatters">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="entity-row">
+      <label style="width:30px">Radius:</label>
+        <input type="number" class="entity-radius" value="20" min="5" max="100" style="width:50px">
+    </div>
+    <div class="tag-picker" style="margin-top:6px">
+      <div class="tag-picker-label">Tags</div>
+      <div class="tag-picker-container">
+        <div class="tag-picker-column">
+          <div class="tag-picker-column-label">Available</div>
+          <select multiple class="tag-picker-select entity-tags-available" style="min-height:60px"></select>
+        </div>
+        <div class="tag-picker-buttons">
+          <button class="panel-btn entity-tags-add">&gt;&gt;</button>
+          <button class="panel-btn entity-tags-remove">&lt;&lt;</button>
+        </div>
+        <div class="tag-picker-column">
+          <div class="tag-picker-column-label">Selected</div>
+          <select multiple class="tag-picker-select entity-tags-selected" style="min-height:60px"></select>
+        </div>
+      </div>
+    </div>
+  `;
+  const sourceSelect = row.querySelector('.entity-source') as HTMLSelectElement;
+  sourceSelect.addEventListener('change', () => {
+    row.querySelectorAll<HTMLElement>('.entity-source-config').forEach(el => {
+      el.style.display = el.dataset.for === sourceSelect.value ? '' : 'none';
+    });
+  });
+  const allChattersCheck = row.querySelector('.entity-all-chatters') as HTMLInputElement;
+  const windowInput = row.querySelector('.entity-window') as HTMLInputElement;
+  allChattersCheck.addEventListener('change', () => {
+    windowInput.disabled = allChattersCheck.checked;
+    windowInput.style.opacity = allChattersCheck.checked ? '0.4' : '';
+  });
+  const tagsAvailableEl = row.querySelector('.entity-tags-available') as HTMLSelectElement;
+  const tagsSelectedEl = row.querySelector('.entity-tags-selected') as HTMLSelectElement;
+  // Populate available tags; FALLING selected by default
+  for (const tag of spawnableTags) {
+    const opt = document.createElement('option');
+    opt.value = tag;
+    opt.textContent = tag;
+    if (tag === TAGS.FALLING) tagsSelectedEl.appendChild(opt);
+    else tagsAvailableEl.appendChild(opt);
+  }
+  row.querySelector('.entity-tags-add')!.addEventListener('click', () => {
+    Array.from(tagsAvailableEl.selectedOptions).forEach(opt => tagsSelectedEl.appendChild(opt));
+  });
+  row.querySelector('.entity-tags-remove')!.addEventListener('click', () => {
+    Array.from(tagsSelectedEl.selectedOptions).forEach(opt => tagsAvailableEl.appendChild(opt));
+  });
+  (row.querySelector('.remove-btn') as HTMLButtonElement).addEventListener('click', () => row.remove());
+  newEffectEntityList.appendChild(row);
+}
+
+function readTriggerConfig(): TriggerConfig | null {
+  const rows = Array.from(triggerConditionList.querySelectorAll<HTMLElement>('.entity-item'));
+  if (rows.length === 0) return null;
+  const conditions: TriggerCondition[] = rows.map(row => ({
+    type: (row.querySelector('.condition-type') as HTMLSelectElement).value as EffectTriggerConditionType,
+    value: (row.querySelector('.condition-value') as HTMLInputElement).value.trim(),
+  }));
+  return {
+    conditions,
+    combinator: triggerCombinator.value as 'AND' | 'OR',
+    fireThreshold: parseInt(triggerThreshold.value) || 1,
+  };
+}
+
+function readEntityDefinitions(): EntityDefinition[] {
+  const rows = Array.from(newEffectEntityList.querySelectorAll<HTMLElement>('.entity-item'));
+  if (rows.length === 0) {
+    return [{ source: 'shape', color: randomEffectColor(), url: '', windowMinutes: 5, radius: 20, tags: [TAGS.FALLING] }];
+  }
+  return rows.map(row => {
+    const source = (row.querySelector('.entity-source') as HTMLSelectElement).value as EntitySource;
+    const colorEl = row.querySelector<HTMLInputElement>('.entity-color');
+    const urlEl = row.querySelector<HTMLInputElement>('.entity-url');
+    const windowEl = row.querySelector<HTMLInputElement>('.entity-window');
+    const allEl = row.querySelector<HTMLInputElement>('.entity-all-chatters');
+    const radiusEl = row.querySelector<HTMLInputElement>('.entity-radius');
+    const tagsSelectedEl = row.querySelector<HTMLSelectElement>('.entity-tags-selected');
+    const tags = tagsSelectedEl ? Array.from(tagsSelectedEl.options).map(o => o.value) : [TAGS.FALLING];
+    return {
+      source,
+      color: colorEl?.value ?? '#4a90d9',
+      url: urlEl?.value.trim() ?? '',
+      windowMinutes: allEl?.checked ? 0 : (parseInt(windowEl?.value ?? '5') || 5),
+      radius: parseInt(radiusEl?.value ?? '20') || 20,
+      tags,
+    };
+  });
+}
+
+function getInputVal(id: string, fallback: number): number {
+  return parseFloat((document.getElementById(id) as HTMLInputElement).value) || fallback;
+}
+
+function readEffectDefinition(): EffectDefinition {
+  return {
+    id: `event-${Date.now()}`,
+    effectType: effectTypeSelect.value as 'burst' | 'rain' | 'stream' | 'spawn',
+    trigger: readTriggerConfig(),
+    lifecycle: {
+      durationType: lifecycleDurationType.value as DurationType,
+      durationValue: parseFloat(lifecycleDurationValue.value) || 10,
+      maxTriggers: parseInt(lifecycleMaxTriggers.value) || 0,
+      allowRetrigger: lifecycleAllowRetrigger.checked,
+    },
+    entities: readEntityDefinitions(),
+    originType: effectOriginType,
+    originX: getInputVal('origin-x', 50),
+    originY: getInputVal('origin-y', 50),
+    burstInterval: getInputVal('burst-interval', 2000),
+    burstCount: getInputVal('burst-count', 8),
+    burstForce: getInputVal('burst-force', 15),
+    rainSpawnRate: getInputVal('rain-spawn-rate', 5),
+    rainSpawnWidth: getInputVal('rain-spawn-width', 1),
+    streamDirection: getInputVal('stream-direction', 90),
+    streamSpawnRate: getInputVal('stream-spawn-rate', 10),
+    streamForce: getInputVal('stream-force', 15),
+    streamConeAngle: getInputVal('stream-cone-angle', 15),
+    spawnCount: getInputVal('spawn-count', 5),
+    spawnForce: getInputVal('spawn-force', 10),
+  };
+}
+
+function evaluateTrigger(trigger: TriggerConfig, data: TriggerEventData): boolean {
+  const chatTypes = new Set(['message', 'text', 'emote', 'bits']);
+  const results = trigger.conditions.map(cond => {
+    // Gate: chat conditions only fire from message events; channel conditions only from their own source
+    const expectedSource: TriggerSourceType = chatTypes.has(cond.type) ? 'message' : (cond.type as TriggerSourceType);
+    if (data.sourceType !== expectedSource) return false;
+    switch (cond.type) {
+      case 'text':    return (data.text ?? '').toLowerCase().includes(cond.value.toLowerCase());
+      case 'emote':   return (data.emotes ?? []).some(e => e === cond.value);
+      case 'bits':    return (data.bits ?? 0) >= parseInt(cond.value || '0');
+      case 'cheer':   return (data.bits ?? 0) >= parseInt(cond.value || '1');
+      case 'raid':    return (data.viewers ?? 0) >= parseInt(cond.value || '1');
+      case 'channelPoints': return !cond.value || (data.rewardTitle ?? '').toLowerCase().includes(cond.value.toLowerCase());
+      default:        return true; // follow, subscribe, subscriptionGift, streamOnline, streamOffline
+    }
+  });
+  return trigger.combinator === 'AND' ? results.every(Boolean) : results.some(Boolean);
+}
+
+function fireTriggerFor(data: TriggerEventData): void {
+  for (const armed of armedEvents.values()) {
+    if (!armed.definition.trigger) continue;
+    if (evaluateTrigger(armed.definition.trigger, data)) {
+      armed.matchCount++;
+      if (armed.matchCount >= armed.definition.trigger.fireThreshold) {
+        armed.matchCount = 0;
+        void fireEvent(armed, data.userId ?? null);
+      }
+      renderActiveEffects();
+    }
+  }
+}
+
+async function circleClipUrl(url: string, diameter: number): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = diameter;
+      canvas.height = diameter;
+      const ctx = canvas.getContext('2d')!;
+      ctx.beginPath();
+      ctx.arc(diameter / 2, diameter / 2, diameter / 2, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(img, 0, 0, diameter, diameter);
+      try { resolve(canvas.toDataURL('image/png')); } catch { resolve(url); }
+    };
+    img.onerror = () => resolve(url);
+    img.src = url;
+  });
+}
+
+async function resolveEntityConfigs(entities: EntityDefinition[], userId: string | null): Promise<EffectObjectConfig[]> {
+  const configs: EffectObjectConfig[] = [];
+  for (const entity of entities) {
+    if (entity.source === 'shape') {
+      configs.push({
+        objectConfig: { fillStyle: entity.color, tags: entity.tags },
+        probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
+      });
+    } else if (entity.source === 'url') {
+      configs.push({
+        objectConfig: { fillStyle: randomEffectColor(), imageUrl: entity.url, tags: entity.tags },
+        probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
+      });
+    } else if (entity.source === 'trigger-sender') {
+      let imageUrl: string | undefined;
+      if (twitchChat && userId) {
+        try { imageUrl = await twitchChat.getProfilePictureUrl(userId) ?? undefined; } catch { /* fallback */ }
+      }
+      const clippedUrl = imageUrl ? await circleClipUrl(imageUrl, entity.radius * 2) : undefined;
+      configs.push({
+        objectConfig: { fillStyle: randomEffectColor(), imageUrl: clippedUrl, tags: entity.tags },
+        probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
+      });
+    } else if (entity.source === 'recent-chatters') {
+      const filtered = entity.windowMinutes === 0
+        ? recentChatters
+        : recentChatters.filter(c => c.timestamp >= Date.now() - entity.windowMinutes * 60 * 1000);
+      const uniqueIds = [...new Set(filtered.map(c => c.userId))];
+      if (uniqueIds.length === 0) {
+        configs.push({
+          objectConfig: { fillStyle: randomEffectColor(), tags: entity.tags },
+          probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
+        });
+      } else if (twitchChat) {
+        try {
+          const urlMap = await twitchChat.getProfilePictureUrls(uniqueIds);
+          for (const [, url] of urlMap) {
+            configs.push({
+              objectConfig: { fillStyle: randomEffectColor(), imageUrl: url ? await circleClipUrl(url, entity.radius * 2) : undefined, tags: entity.tags },
+              probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
+            });
+          }
+        } catch {
+          configs.push({
+            objectConfig: { fillStyle: randomEffectColor(), tags: entity.tags },
+            probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
+          });
+        }
+      } else {
+        for (let i = 0; i < uniqueIds.length; i++) {
+          configs.push({
+            objectConfig: { fillStyle: randomEffectColor(), tags: entity.tags },
+            probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
+          });
+        }
+      }
+    }
+  }
+  return configs.length > 0 ? configs : [{
+    objectConfig: { fillStyle: randomEffectColor(), tags: [TAGS.FALLING] },
+    probability: 1, minScale: 1, maxScale: 1, baseRadius: 20,
+  }];
+}
+
+function resolveOriginPx(def: EffectDefinition): { x: number; y: number } {
+  if (!canvas) return { x: 0, y: 0 };
+  if (def.originType === 'mouse') {
+    // Fall back to canvas center if OBS mouse relay hasn't sent data yet
+    return mouseDataReceived
+      ? { x: mouseX, y: mouseY }
+      : { x: canvas.width / 2, y: canvas.height / 2 };
+  }
+  return {
+    x: (def.originX / 100) * canvas.width,
+    y: (def.originY / 100) * canvas.height,
+  };
+}
+
+async function spawnEntitiesAt(objectConfigs: EffectObjectConfig[], count: number, x: number, y: number, force: number, ttl: number | undefined): Promise<void> {
+  if (!scene) return;
+  const total = objectConfigs.reduce((s, c) => s + c.probability, 0);
+  for (let i = 0; i < count; i++) {
+    let r = Math.random() * total;
+    const cfg = objectConfigs.find(c => { r -= c.probability; return r <= 0; }) ?? objectConfigs[0];
+    const scale = cfg.minScale + Math.random() * (cfg.maxScale - cfg.minScale);
+    const radius = (cfg.baseRadius ?? 20) * scale;
+    const id = await scene.spawnObjectAsync({ ...cfg.objectConfig, x, y, radius, ttl });
+    if (force > 0) {
+      const angle = Math.random() * Math.PI * 2;
+      scene.setVelocity(id, { x: Math.cos(angle) * force, y: Math.sin(angle) * force });
+    }
+  }
+}
+
+function computeStopDelayMs(def: EffectDefinition): number | null {
+  if (def.effectType === 'spawn') return null;
+  const { durationType, durationValue } = def.lifecycle;
+  if (durationType === 'none') return null;
+  if (durationType === 'time') return durationValue * 1000;
+  if (def.effectType === 'burst') return Math.ceil(durationValue / def.burstCount) * def.burstInterval;
+  if (def.effectType === 'rain') return (durationValue / def.rainSpawnRate) * 1000;
+  return (durationValue / def.streamSpawnRate) * 1000;
+}
+
+function buildSceneEffectConfig(def: EffectDefinition, objectConfigs: EffectObjectConfig[], effectId: string) {
+  const origin = resolveOriginPx(def);
+  if (def.effectType === 'burst') {
+    return { id: effectId, enabled: true, objectConfigs, type: 'burst' as const, origin, burstInterval: def.burstInterval, burstCount: def.burstCount, burstForce: def.burstForce };
+  }
+  if (def.effectType === 'rain') {
+    return { id: effectId, enabled: true, objectConfigs, type: 'rain' as const, spawnRate: def.rainSpawnRate, spawnWidth: def.rainSpawnWidth };
+  }
+  const dirRad = def.streamDirection * Math.PI / 180;
+  return {
+    id: effectId, enabled: true, objectConfigs, type: 'stream' as const,
+    origin,
+    direction: { x: Math.cos(dirRad), y: Math.sin(dirRad) },
+    spawnRate: def.streamSpawnRate,
+    force: def.streamForce,
+    coneAngle: def.streamConeAngle * Math.PI / 180,
+  };
+}
+
+async function fireEvent(armed: ArmedEvent, userId: string | null): Promise<void> {
+  const { definition: def } = armed;
+  if (!def.lifecycle.allowRetrigger && armed.isActive) return;
+  if (!scene) return;
+  const objectConfigs = await resolveEntityConfigs(def.entities, userId);
+
+  if (def.effectType === 'spawn') {
+    const { x, y } = resolveOriginPx(def);
+    const ttl = def.lifecycle.durationType === 'time' ? def.lifecycle.durationValue * 1000 : undefined;
+    await spawnEntitiesAt(objectConfigs, def.spawnCount, x, y, def.spawnForce, ttl);
+    armed.triggerCount++;
+    if (def.lifecycle.maxTriggers > 0 && armed.triggerCount >= def.lifecycle.maxTriggers) {
+      armedEvents.delete(def.id);
+    }
+    renderActiveEffects();
+    return;
+  }
+
+  const effectId = nextEffectId(def.effectType);
+  scene.setEffect(buildSceneEffectConfig(def, objectConfigs, effectId));
+  armed.isActive = true;
+  armed.activeEffectId = effectId;
+  const delay = computeStopDelayMs(def);
+  if (delay !== null) {
+    if (armed.stopTimer !== null) clearTimeout(armed.stopTimer);
+    armed.stopTimer = setTimeout(() => {
+      scene?.removeEffect(effectId);
+      armed.isActive = false;
+      armed.activeEffectId = null;
+      armed.stopTimer = null;
+      renderActiveEffects();
+    }, delay);
+  }
+  armed.triggerCount++;
+  if (def.lifecycle.maxTriggers > 0 && armed.triggerCount >= def.lifecycle.maxTriggers) {
+    armedEvents.delete(def.id);
+  }
+  renderActiveEffects();
+}
+
+function renderActiveEffects(): void {
+  const runningIds = scene?.getEffectIds() ?? [];
+  const armedList = Array.from(armedEvents.values());
+  if (runningIds.length === 0 && armedList.length === 0) {
+    activeEffectsList.innerHTML = '<div class="empty-message">No active effects</div>';
+    return;
+  }
+  activeEffectsList.innerHTML = '';
+  for (const armed of armedList) {
+    const def = armed.definition;
+    const typeLabel = def.effectType.charAt(0).toUpperCase() + def.effectType.slice(1);
+    const maxLabel = def.lifecycle.maxTriggers > 0 ? `/${def.lifecycle.maxTriggers}` : '';
+    const item = document.createElement('div');
+    item.className = 'entity-item';
+    item.style.marginBottom = '4px';
+    item.innerHTML = `
+      <div class="entity-row entity-row-header" style="margin-bottom:0">
+        <span style="flex:1;font-size:12px">${typeLabel} — armed (${armed.triggerCount}${maxLabel})</span>
+        <span style="font-size:10px;color:#555;margin-right:6px">${armed.matchCount} pending</span>
+        <button class="remove-btn">Stop</button>
+      </div>
+    `;
+    (item.querySelector('.remove-btn') as HTMLButtonElement).addEventListener('click', () => {
+      if (armed.stopTimer !== null) clearTimeout(armed.stopTimer);
+      if (armed.activeEffectId) scene?.removeEffect(armed.activeEffectId);
+      armedEvents.delete(def.id);
+      renderActiveEffects();
+    });
+    activeEffectsList.appendChild(item);
+  }
+  for (const id of runningIds) {
+    const effect = scene?.getEffect(id);
+    if (!effect) continue;
+    const typeLabel = effect.type.charAt(0).toUpperCase() + effect.type.slice(1);
+    const item = document.createElement('div');
+    item.className = 'entity-item';
+    item.style.marginBottom = '4px';
+    item.innerHTML = `
+      <div class="entity-row entity-row-header" style="margin-bottom:0">
+        <span style="flex:1;font-size:12px">${typeLabel}</span>
+        <span style="font-size:10px;color:#555;margin-right:6px">${id}</span>
+        <button class="remove-btn">Stop</button>
+      </div>
+    `;
+    (item.querySelector('.remove-btn') as HTMLButtonElement).addEventListener('click', () => {
+      scene?.removeEffect(id);
+      renderActiveEffects();
+    });
+    activeEffectsList.appendChild(item);
+  }
+}
+
+async function createEffectEvent(): Promise<void> {
+  if (!scene) return;
+  const def = readEffectDefinition();
+  if (def.trigger === null) {
+    const objectConfigs = await resolveEntityConfigs(def.entities, null);
+    if (def.effectType === 'spawn') {
+      const { x, y } = resolveOriginPx(def);
+      const ttl = def.lifecycle.durationType === 'time' ? def.lifecycle.durationValue * 1000 : undefined;
+      await spawnEntitiesAt(objectConfigs, def.spawnCount, x, y, def.spawnForce, ttl);
+    } else {
+      const effectId = nextEffectId(def.effectType);
+      scene.setEffect(buildSceneEffectConfig(def, objectConfigs, effectId));
+      const delay = computeStopDelayMs(def);
+      if (delay !== null) {
+        setTimeout(() => { scene?.removeEffect(effectId); renderActiveEffects(); }, delay);
+      }
+    }
+  } else {
+    armedEvents.set(def.id, { definition: def, matchCount: 0, triggerCount: 0, isActive: false, activeEffectId: null, stopTimer: null });
+  }
+  renderActiveEffects();
+}
+
+function stopAllEffects(): void {
+  for (const armed of armedEvents.values()) {
+    if (armed.stopTimer !== null) clearTimeout(armed.stopTimer);
+    if (armed.activeEffectId) scene?.removeEffect(armed.activeEffectId);
+  }
+  armedEvents.clear();
+  scene?.getEffectIds().forEach(id => scene?.removeEffect(id));
+  renderActiveEffects();
+}
+
+// Effects event listeners
+effectTypeSelect.addEventListener('change', () => {
+  const type = effectTypeSelect.value;
+  (document.getElementById('params-burst') as HTMLElement).style.display = type === 'burst' ? '' : 'none';
+  (document.getElementById('params-rain') as HTMLElement).style.display = type === 'rain' ? '' : 'none';
+  (document.getElementById('params-stream') as HTMLElement).style.display = type === 'stream' ? '' : 'none';
+  (document.getElementById('params-spawn') as HTMLElement).style.display = type === 'spawn' ? '' : 'none';
+  originSection.style.display = type === 'rain' ? 'none' : '';
+});
+lifecycleDurationType.addEventListener('change', () => {
+  lifecycleDurationValue.style.display = lifecycleDurationType.value !== 'none' ? '' : 'none';
+});
+btnOriginFixed.addEventListener('click', () => {
+  effectOriginType = 'fixed';
+  btnOriginFixed.style.background = '#3a4a6a'; btnOriginFixed.style.color = '#fff';
+  btnOriginMouse.style.background = '#2a2a4a'; btnOriginMouse.style.color = '#888';
+  originFixedRow.style.display = '';
+});
+btnOriginMouse.addEventListener('click', () => {
+  effectOriginType = 'mouse';
+  btnOriginMouse.style.background = '#3a4a6a'; btnOriginMouse.style.color = '#fff';
+  btnOriginFixed.style.background = '#2a2a4a'; btnOriginFixed.style.color = '#888';
+  originFixedRow.style.display = 'none';
+});
+
+btnAddCondition.addEventListener('click', addConditionRow);
+btnAddEntity.addEventListener('click', addEntityRow);
+btnCreateEffect.addEventListener('click', () => { void createEffectEvent(); });
+btnStopAllEffects.addEventListener('click', stopAllEffects);
+
 // Entity spawning
 async function spawnRandomEntity(): Promise<void> {
   if (!scene || !canvas) return;
@@ -537,6 +1300,254 @@ async function disconnectFromOBS(): Promise<void> {
   await obsClient.disconnect();
 }
 
+// Twitch Connection handlers
+function updateTwitchUI(state: 'connected' | 'disconnected' | 'connecting' | 'auth_error'): void {
+  const statusMap = {
+    connected: { text: 'Connected', color: '#4ae945' },
+    disconnected: { text: 'Disconnected', color: '#e94560' },
+    connecting: { text: 'Connecting...', color: '#d9904a' },
+    auth_error: { text: 'Auth Error', color: '#e94560' },
+  };
+  const { text, color } = statusMap[state];
+  twitchConnectionStatus.textContent = text;
+  twitchConnectionStatus.style.color = color;
+
+  const connected = state === 'connected';
+  const connecting = state === 'connecting';
+  const busy = connected || connecting;
+  btnTwitchConnect.disabled = busy;
+  btnTwitchDisconnect.disabled = !connected;
+  inputTwitchChannelId.disabled = busy;
+  inputTwitchUserId.disabled = busy;
+  inputTwitchClientId.disabled = busy;
+  inputTwitchAccessToken.disabled = busy;
+  subsAvailable.disabled = busy;
+  subsSelected.disabled = busy;
+  btnSubAdd.disabled = busy;
+  btnSubRemove.disabled = busy;
+
+  // Sim fire buttons: only enabled when connected in sim mode
+  const simConnected = connected && twitchMode === 'sim';
+  btnSimFireChat.disabled      = !simConnected;
+  btnSimFireFollow.disabled    = !simConnected;
+  btnSimFireSubscribe.disabled = !simConnected;
+  btnSimFireGiftSub.disabled   = !simConnected;
+  btnSimFireCheer.disabled     = !simConnected;
+  btnSimFireRaid.disabled      = !simConnected;
+  btnSimRun.disabled  = !simConnected || (twitchSimulator?.running ?? false);
+  btnSimStop.disabled = !(twitchSimulator?.running ?? false);
+
+  // Mode pills locked while connected or connecting
+  btnTwitchModeReal.disabled = busy;
+  btnTwitchModeSim.disabled  = busy;
+}
+
+function wireClientEvents(chat: TwitchClient): void {
+  chat.on('connected', () => {
+    updateTwitchUI('connected');
+    chatDebugLog?.log('twitch', { status: 'connected' });
+  });
+
+  chat.on('disconnected', (code: number, reason: string) => {
+    updateTwitchUI('disconnected');
+    chatDebugLog?.log('twitch', { status: 'disconnected', code, reason });
+    if (twitchChat === chat) twitchChat = null;
+  });
+
+  chat.on('message', (msg: NormalizedMessage) => {
+    const data: Record<string, unknown> = { text: msg.text };
+    if (msg.emotes.length > 0) data.emotes = msg.emotes.map((e: { name: string }) => e.name);
+    if (msg.cheer) data.bits = msg.cheer.bits;
+    if (msg.reply) data.reply_to = msg.reply.parentUserDisplayName;
+    chatDebugLog?.log(msg.user.displayName, data);
+
+    // Track recent chatters
+    recentChatters.push({ userId: msg.user.id, timestamp: Date.now() });
+
+    // Evaluate chat-based armed triggers
+    fireTriggerFor({
+      sourceType: 'message',
+      userId: msg.user.id,
+      text: msg.text,
+      emotes: msg.emotes.map(e => e.name),
+      bits: msg.cheer?.bits,
+    });
+  });
+
+  chat.on('auth_error', () => {
+    updateTwitchUI('auth_error');
+    chatDebugLog?.log('twitch', { status: 'auth_error' });
+    twitchChat = null;
+  });
+
+  chat.on('revoked', (reason: string) => {
+    updateTwitchUI('disconnected');
+    chatDebugLog?.log('twitch', { status: 'revoked', reason });
+    if (twitchChat === chat) twitchChat = null;
+  });
+
+  chat.on('error', (err: Error) => {
+    chatDebugLog?.log('twitch:error', { message: err.message });
+  });
+
+  chat.on('follow', (event) => {
+    chatDebugLog?.log(event.user.displayName, { type: 'follow' });
+    fireTriggerFor({ sourceType: 'follow', userId: event.user.id });
+  });
+
+  chat.on('subscribe', (event) => {
+    chatDebugLog?.log(event.user.displayName, { type: 'subscribe', tier: event.tier, gift: event.isGift });
+    fireTriggerFor({ sourceType: 'subscribe', userId: event.user.id });
+  });
+
+  chat.on('subscriptionMessage', (event) => {
+    chatDebugLog?.log(event.user.displayName, { type: 'resub', tier: event.tier, months: event.cumulativeMonths });
+    fireTriggerFor({ sourceType: 'subscribe', userId: event.user.id });
+  });
+
+  chat.on('subscriptionGift', (event) => {
+    chatDebugLog?.log(event.gifter?.displayName ?? 'Anonymous', { type: 'giftSub', tier: event.tier, total: event.total });
+    fireTriggerFor({ sourceType: 'subscriptionGift', userId: event.gifter?.id });
+  });
+
+  chat.on('cheer', (event) => {
+    chatDebugLog?.log(event.user?.displayName ?? 'Anonymous', { type: 'cheer', bits: event.bits });
+    fireTriggerFor({ sourceType: 'cheer', userId: event.user?.id, bits: event.bits });
+  });
+
+  chat.on('raid', (event) => {
+    chatDebugLog?.log(event.fromBroadcaster.displayName, { type: 'raid', viewers: event.viewerCount });
+    fireTriggerFor({ sourceType: 'raid', userId: event.fromBroadcaster.id, viewers: event.viewerCount });
+  });
+
+  chat.on('channelPoints', (event) => {
+    chatDebugLog?.log(event.user.displayName, { type: 'channelPoints', reward: event.reward.title });
+    fireTriggerFor({ sourceType: 'channelPoints', userId: event.user.id, rewardTitle: event.reward.title });
+  });
+
+  chat.on('streamOnline', () => {
+    chatDebugLog?.log('stream', { type: 'online' });
+    fireTriggerFor({ sourceType: 'streamOnline' });
+  });
+
+  chat.on('streamOffline', () => {
+    chatDebugLog?.log('stream', { type: 'offline' });
+    fireTriggerFor({ sourceType: 'streamOffline' });
+  });
+
+  chat.on('channelUpdate', (event) => {
+    chatDebugLog?.log('channel', { type: 'update', title: event.title, category: event.categoryName });
+    fireTriggerFor({ sourceType: 'channelUpdate' });
+  });
+
+  chat.on('hypeTrain.begin', () => {
+    chatDebugLog?.log('channel', { type: 'hypeTrain.begin' });
+    fireTriggerFor({ sourceType: 'hypeTrain' });
+  });
+
+  chat.on('adBreak', (event) => {
+    chatDebugLog?.log('channel', { type: 'adBreak', duration: event.durationSeconds });
+    fireTriggerFor({ sourceType: 'adBreak' });
+  });
+
+  chat.on('poll.begin', (event) => {
+    chatDebugLog?.log('channel', { type: 'poll.begin', title: event.title });
+    fireTriggerFor({ sourceType: 'poll' });
+  });
+
+  chat.on('prediction.begin', (event) => {
+    chatDebugLog?.log('channel', { type: 'prediction.begin', title: event.title });
+    fireTriggerFor({ sourceType: 'prediction' });
+  });
+
+  chat.on('shoutout.create', (event) => {
+    chatDebugLog?.log('channel', { type: 'shoutout.create', to: event.toBroadcaster.displayName });
+    fireTriggerFor({ sourceType: 'shoutout' });
+  });
+
+  chat.on('shoutout.receive', (event) => {
+    chatDebugLog?.log('channel', { type: 'shoutout.receive', from: event.fromBroadcaster.displayName });
+    fireTriggerFor({ sourceType: 'shoutout' });
+  });
+}
+
+async function connectToTwitch(): Promise<void> {
+  const channelId = inputTwitchChannelId.value.trim();
+  const userId = inputTwitchUserId.value.trim();
+  const clientId = inputTwitchClientId.value.trim();
+  const accessToken = inputTwitchAccessToken.value.trim();
+
+  if (!channelId || !userId || !clientId || !accessToken) {
+    alert('Please fill in all Twitch fields');
+    return;
+  }
+
+  updateTwitchUI('connecting');
+
+  const subscriptions: TwitchClientSubscriptions = {};
+  for (const key of selectedTwitchSubs) {
+    (subscriptions as Record<string, boolean>)[key] = true;
+  }
+  const chat = new TwitchClient({ channelId, userId, clientId, accessToken, subscriptions });
+  twitchChat = chat;
+  wireClientEvents(chat);
+
+  try {
+    await chat.preloadEmotes();
+    await chat.connect();
+
+    config.twitch.channelId = channelId;
+    config.twitch.userId = userId;
+    config.twitch.clientId = clientId;
+    config.twitch.subscriptions = [...selectedTwitchSubs];
+    saveConfig(config);
+  } catch (err) {
+    console.error('Failed to connect to Twitch:', err);
+    updateTwitchUI('disconnected');
+    twitchChat = null;
+  }
+}
+
+function disconnectFromTwitch(): void {
+  if (!twitchChat) return;
+  twitchChat.removeAllListeners();
+  twitchChat.disconnect();
+  twitchChat = null;
+  updateTwitchUI('disconnected');
+}
+
+async function connectSimulated(): Promise<void> {
+  updateTwitchUI('connecting');
+  const sim = new TwitchSimulator();
+  twitchSimulator = sim;
+  twitchChat = sim.client;
+  wireClientEvents(sim.client);
+  try {
+    await sim.connect();
+  } catch (err) {
+    console.error('Simulator failed to connect:', err);
+    updateTwitchUI('disconnected');
+    twitchSimulator = null;
+    twitchChat = null;
+  }
+}
+
+function disconnectSimulated(): void {
+  if (!twitchSimulator) return;
+  twitchSimulator.disconnect();
+  twitchSimulator = null;
+}
+
+function switchTwitchMode(mode: 'real' | 'sim'): void {
+  twitchMode = mode;
+  twitchRealContent.style.display = mode === 'real' ? '' : 'none';
+  twitchSimContent.style.display  = mode === 'sim'  ? '' : 'none';
+  btnTwitchModeReal.style.background = mode === 'real' ? '#3a4a6a' : '#2a2a4a';
+  btnTwitchModeReal.style.color      = mode === 'real' ? '#fff'    : '#888';
+  btnTwitchModeSim.style.background  = mode === 'sim'  ? '#3a4a6a' : '#2a2a4a';
+  btnTwitchModeSim.style.color       = mode === 'sim'  ? '#fff'    : '#888';
+}
+
 // OBS event listeners
 obsClient.on('connected', async () => {
   updateConnectionUI(true);
@@ -642,6 +1653,86 @@ async function applyBackgroundColor(): Promise<void> {
 // Event listeners
 btnConnect.addEventListener('click', connectToOBS);
 btnDisconnect.addEventListener('click', disconnectFromOBS);
+btnTwitchConnect.addEventListener('click', () => {
+  if (twitchMode === 'sim') void connectSimulated();
+  else void connectToTwitch();
+});
+btnTwitchDisconnect.addEventListener('click', () => {
+  if (twitchMode === 'sim') disconnectSimulated();
+  else disconnectFromTwitch();
+});
+
+btnTwitchModeReal.addEventListener('click', () => switchTwitchMode('real'));
+btnTwitchModeSim.addEventListener('click',  () => switchTwitchMode('sim'));
+
+// Sim manual fire buttons
+btnSimFireChat.addEventListener('click', () => {
+  const text = simChatText.value.trim() || undefined;
+  twitchSimulator?.fireChat(text, getSimUser());
+});
+btnSimFireFollow.addEventListener('click',    () => twitchSimulator?.fireFollow(getSimUser()));
+btnSimFireSubscribe.addEventListener('click', () => twitchSimulator?.fireSubscribe(getSimUser()));
+btnSimFireGiftSub.addEventListener('click',   () => twitchSimulator?.fireGiftSub(undefined, getSimUser()));
+btnSimFireCheer.addEventListener('click', () => {
+  twitchSimulator?.fireCheer(parseInt(simCheerBits.value) || 100, undefined, getSimUser());
+});
+btnSimFireRaid.addEventListener('click', () => {
+  twitchSimulator?.fireRaid(parseInt(simRaidViewers.value) || 50, getSimUser());
+});
+
+// Sim action chip toggles
+simScenarioActions.querySelectorAll<HTMLButtonElement>('.sim-action-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const action = chip.dataset.action as ActionType;
+    if (simActiveActions.has(action)) {
+      if (simActiveActions.size > 1) {
+        simActiveActions.delete(action);
+        chip.style.borderColor = '#3a3a5a';
+        chip.style.color = '#666';
+      }
+    } else {
+      simActiveActions.add(action);
+      chip.style.borderColor = '#4a90d9';
+      chip.style.color = '#4a90d9';
+    }
+  });
+});
+
+// Sim scenario run/stop
+btnSimRun.addEventListener('click', () => {
+  if (!twitchSimulator) return;
+  twitchSimulator.run({
+    duration: parseInt(simScenarioDuration.value) || 30,
+    rate: parseFloat(simScenarioRate.value) || 1,
+    actions: Array.from(simActiveActions),
+    onComplete: () => updateTwitchUI('connected'),
+  });
+  updateTwitchUI('connected');
+});
+btnSimStop.addEventListener('click', () => {
+  twitchSimulator?.stop();
+  updateTwitchUI('connected');
+});
+
+btnLookup.addEventListener('click', async () => {
+  const uid = lookupIdInput.value.trim();
+  if (!uid) return;
+  if (!twitchChat) {
+    lookupResult.textContent = 'Not connected to Twitch';
+    return;
+  }
+  lookupResult.textContent = 'Looking up...';
+  try {
+    const url = await twitchChat.getProfilePictureUrl(uid);
+    if (url) {
+      lookupResult.innerHTML = `<img src="${url}" style="width:48px;height:48px;border-radius:50%;vertical-align:middle;margin-right:8px"><span style="color:#fff">${uid}</span>`;
+    } else {
+      lookupResult.textContent = 'User not found';
+    }
+  } catch (err) {
+    lookupResult.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
+  }
+});
 checkboxDebug.addEventListener('change', updateSettings);
 selectLogLevel.addEventListener('change', updateSettings);
 btnBgTransparent.addEventListener('click', setTransparentBackground);
@@ -671,6 +1762,11 @@ inputOffsetX.value = String(config.mouseCapture.offset.x);
 inputOffsetY.value = String(config.mouseCapture.offset.y);
 inputScaleX.value = String(config.mouseCapture.scale.x);
 inputScaleY.value = String(config.mouseCapture.scale.y);
+inputTwitchChannelId.value = config.twitch.channelId;
+inputTwitchUserId.value = config.twitch.userId;
+inputTwitchClientId.value = config.twitch.clientId;
+renderSubPicker();
+populateSimUserSelect();
 
 // Handle resize
 window.addEventListener('resize', () => {
@@ -704,54 +1800,107 @@ if (!hidePanels) {
     defaultPanelWidth: 300,
     initializeDefaultAnchors: true,
     classPrefix: 'blork-tabs',
-    // Auto-hide after 5 seconds unless ?panels=visible
     startHidden: !showPanels,
-    autoHideDelay: showPanels ? undefined : 5000,
+    // autoHideDelay omitted — we manage hide timing ourselves so hover pauses it
   });
 
-  tabManager.registerPanel('connection', connectionPanel, {
-    dragHandle: connectionDragHandle,
-    collapseButton: connectionCollapseBtn,
-    contentWrapper: connectionContent,
-    detachGrip: document.getElementById('connection-detach-grip') as HTMLDivElement,
-    startCollapsed: false,
-  });
+  [
+    tabManager.registerPanel('connection', connectionPanel, {
+      dragHandle: connectionDragHandle,
+      collapseButton: connectionCollapseBtn,
+      contentWrapper: connectionContent,
+      detachGrip: document.getElementById('connection-detach-grip') as HTMLDivElement,
+      startCollapsed: false,
+    }),
+    tabManager.registerPanel('settings', settingsPanel, {
+      dragHandle: settingsDragHandle,
+      collapseButton: settingsCollapseBtn,
+      contentWrapper: settingsContent,
+      detachGrip: document.getElementById('settings-detach-grip') as HTMLDivElement,
+      startCollapsed: true,
+    }),
+    tabManager.registerPanel('entity', entityPanel, {
+      dragHandle: entityDragHandle,
+      collapseButton: entityCollapseBtn,
+      contentWrapper: entityContent,
+      detachGrip: document.getElementById('entity-detach-grip') as HTMLDivElement,
+      startCollapsed: true,
+    }),
+    tabManager.registerPanel('effects', effectsPanel, {
+      dragHandle: effectsDragHandle,
+      collapseButton: effectsCollapseBtn,
+      contentWrapper: effectsContent,
+      detachGrip: document.getElementById('effects-detach-grip') as HTMLDivElement,
+      startCollapsed: true,
+    }),
+    tabManager.registerPanel('input', inputPanel, {
+      dragHandle: inputDragHandle,
+      collapseButton: inputCollapseBtn,
+      contentWrapper: inputContent,
+      detachGrip: document.getElementById('input-detach-grip') as HTMLDivElement,
+      startCollapsed: true,
+    }),
+  ].forEach(state => togglePin(state, false));
 
-  tabManager.registerPanel('settings', settingsPanel, {
-    dragHandle: settingsDragHandle,
-    collapseButton: settingsCollapseBtn,
-    contentWrapper: settingsContent,
-    detachGrip: document.getElementById('settings-detach-grip') as HTMLDivElement,
-    startCollapsed: true,
-  });
+  // Hover-aware auto-hide (only when not forced visible)
+  if (!showPanels) {
+    const AUTO_HIDE_DELAY = 5000;
+    const allPanelEls = [connectionPanel, settingsPanel, entityPanel, effectsPanel, inputPanel];
+    const panelIds = ['connection', 'settings', 'entity', 'effects', 'input'];
+    let autoHideTimer: ReturnType<typeof setTimeout> | null = null;
+    let panelHoverCount = 0;
 
-  tabManager.registerPanel('entity', entityPanel, {
-    dragHandle: entityDragHandle,
-    collapseButton: entityCollapseBtn,
-    contentWrapper: entityContent,
-    detachGrip: document.getElementById('entity-detach-grip') as HTMLDivElement,
-    startCollapsed: true,
-  });
+    const clearHideTimer = () => {
+      if (autoHideTimer !== null) { clearTimeout(autoHideTimer); autoHideTimer = null; }
+    };
 
-  tabManager.registerPanel('effects', effectsPanel, {
-    dragHandle: effectsDragHandle,
-    collapseButton: effectsCollapseBtn,
-    contentWrapper: effectsContent,
-    detachGrip: document.getElementById('effects-detach-grip') as HTMLDivElement,
-    startCollapsed: true,
-  });
+    const scheduleHide = () => {
+      clearHideTimer();
+      autoHideTimer = setTimeout(() => {
+        panelIds.forEach(id => tabManager.hide(id));
+      }, AUTO_HIDE_DELAY);
+    };
 
-  tabManager.registerPanel('input', inputPanel, {
-    dragHandle: inputDragHandle,
-    collapseButton: inputCollapseBtn,
-    contentWrapper: inputContent,
-    detachGrip: document.getElementById('input-detach-grip') as HTMLDivElement,
-    startCollapsed: true,
+    document.addEventListener('mousemove', () => {
+      panelIds.forEach(id => tabManager.show(id));
+      if (panelHoverCount === 0) scheduleHide();
+    });
+
+    allPanelEls.forEach(el => {
+      el.addEventListener('mouseenter', () => {
+        panelHoverCount++;
+        clearHideTimer();
+      });
+      el.addEventListener('mouseleave', () => {
+        panelHoverCount = Math.max(0, panelHoverCount - 1);
+        if (panelHoverCount === 0) scheduleHide();
+      });
+    });
+  }
+
+  // Sync stats visibility with tab panel visibility
+  if (!showPanels) {
+    statsEl.style.display = 'none';
+  }
+  tabManager.on('panel:show', () => {
+    statsEl.style.display = '';
+  });
+  tabManager.on('panel:hide', () => {
+    if (tabManager.getAllPanels().every(p => p.isHidden)) {
+      statsEl.style.display = 'none';
+    }
   });
 
   // Create embedded debug log with 3 second hover to enlarge
   debugLog = tabManager.createDebugLog(eventLogContainer, {
     maxEntries: 50,
+    showTimestamps: true,
+    hoverDelay: 3000,
+  });
+
+  // Create chat debug log
+  chatDebugLog = tabManager.createDebugLog(chatLogContainer, {
+    maxEntries: 200,
     showTimestamps: true,
     hoverDelay: 3000,
   });

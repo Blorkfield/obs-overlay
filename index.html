@@ -9,6 +9,7 @@
       margin: 0;
       padding: 0;
       box-sizing: border-box;
+      --blork-tabs-content-max-height: 80vh;
     }
     html, body {
       background: transparent;
@@ -117,6 +118,9 @@
       font-size: 12px;
       color: #888;
       min-width: 100px;
+    }
+    .param-row .toggle-switch {
+      min-width: auto;
     }
     .param-row input {
       width: 80px;
@@ -345,13 +349,14 @@
   <div id="connection-panel" class="blork-tabs-panel">
     <div class="blork-tabs-header" id="connection-drag-handle">
       <div class="blork-tabs-detach-grip" id="connection-detach-grip"></div>
-      <span class="blork-tabs-title">OBS Connection</span>
+      <span class="blork-tabs-title">Connections</span>
+      <button class="blork-tabs-pin-btn" id="connection-pin-btn"></button>
       <button class="blork-tabs-collapse-btn" id="connection-collapse">-</button>
     </div>
     <div class="blork-tabs-content" id="connection-content">
       <div class="effect-section">
         <div class="effect-header" style="margin-bottom:8px">
-          <span class="effect-title">Status:</span>
+          <span class="effect-title">OBS</span>
           <span id="connection-status" class="connection-status" style="color:#e94560">Disconnected</span>
         </div>
         <div class="effect-params">
@@ -369,6 +374,121 @@
           <button id="btn-disconnect" class="panel-btn panel-btn-danger" style="flex:1" disabled>Disconnect</button>
         </div>
       </div>
+      <div class="effect-section" style="background:#141422;border-color:#1e1e38;padding:10px">
+        <div class="effect-header" style="margin-bottom:8px">
+          <span class="effect-title" style="font-size:12px;color:#999">Twitch</span>
+          <span id="twitch-connection-status" class="connection-status" style="color:#e94560;font-size:11px">Disconnected</span>
+          <div style="display:flex;gap:0;margin-left:auto;border-radius:4px;overflow:hidden;border:1px solid #3a3a5a">
+            <button id="btn-twitch-mode-real" style="padding:3px 8px;font-size:11px;background:#3a4a6a;border:none;color:#fff;cursor:pointer">Real</button>
+            <button id="btn-twitch-mode-sim" style="padding:3px 8px;font-size:11px;background:#2a2a4a;border:none;color:#888;cursor:pointer">Simulated</button>
+          </div>
+        </div>
+
+        <!-- Real mode content -->
+        <div id="twitch-real-content">
+          <div class="effect-params">
+            <div class="param-row">
+              <label>Channel ID:</label>
+              <input type="text" id="input-twitch-channel-id" placeholder="Numeric user ID">
+            </div>
+            <div class="param-row">
+              <label>User ID:</label>
+              <input type="text" id="input-twitch-user-id" placeholder="Numeric user ID">
+            </div>
+            <div class="param-row">
+              <label>Client ID:</label>
+              <input type="text" id="input-twitch-client-id" placeholder="App client ID">
+            </div>
+            <div class="param-row">
+              <label>Access Token:</label>
+              <input type="password" id="input-twitch-access-token" placeholder="OAuth token">
+            </div>
+          </div>
+          <div class="tag-picker" style="margin-top:10px">
+            <div class="tag-picker-label">Subscriptions</div>
+            <div class="tag-picker-container">
+              <div class="tag-picker-column">
+                <div class="tag-picker-column-label">Available</div>
+                <select id="subs-available" multiple class="tag-picker-select"></select>
+              </div>
+              <div class="tag-picker-buttons">
+                <button id="btn-sub-add" class="panel-btn">&gt;&gt;</button>
+                <button id="btn-sub-remove" class="panel-btn">&lt;&lt;</button>
+              </div>
+              <div class="tag-picker-column">
+                <div class="tag-picker-column-label">Active</div>
+                <select id="subs-selected" multiple class="tag-picker-select"></select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Simulated mode content -->
+        <div id="twitch-sim-content" style="display:none">
+          <div class="effect-params">
+            <div class="param-row">
+              <label>User:</label>
+              <select id="sim-user-select" style="flex:1;padding:5px 8px;border:1px solid #3a3a5a;border-radius:4px;background:#2a2a4a;color:#fff;font-size:11px"></select>
+            </div>
+          </div>
+          <div style="border-top:1px solid #2a2a4a;padding-top:8px;margin-top:8px">
+            <div style="font-size:11px;color:#888;margin-bottom:6px">Manual Fire</div>
+            <div class="param-row" style="margin-bottom:6px">
+              <input type="text" id="sim-chat-text" placeholder="Chat message..." style="flex:1;padding:5px 8px;border:1px solid #3a3a5a;border-radius:4px;background:#2a2a4a;color:#fff;font-size:11px">
+              <button id="btn-sim-fire-chat" class="panel-btn" style="font-size:11px;padding:4px 8px" disabled>Chat</button>
+            </div>
+            <div style="display:flex;gap:4px;margin-bottom:6px">
+              <button id="btn-sim-fire-follow" class="panel-btn" style="flex:1;font-size:11px;padding:4px 6px" disabled>Follow</button>
+              <button id="btn-sim-fire-subscribe" class="panel-btn" style="flex:1;font-size:11px;padding:4px 6px" disabled>Sub</button>
+              <button id="btn-sim-fire-giftsub" class="panel-btn" style="flex:1;font-size:11px;padding:4px 6px" disabled>GiftSub</button>
+            </div>
+            <div class="param-row" style="margin-bottom:6px">
+              <label style="min-width:46px;font-size:11px">Cheer:</label>
+              <input type="number" id="sim-cheer-bits" value="100" min="1" style="width:56px;padding:5px 8px;border:1px solid #3a3a5a;border-radius:4px;background:#2a2a4a;color:#fff;font-size:11px">
+              <span style="font-size:11px;color:#888">bits</span>
+              <button id="btn-sim-fire-cheer" class="panel-btn" style="font-size:11px;padding:4px 8px;margin-left:auto" disabled>Fire</button>
+            </div>
+            <div class="param-row">
+              <label style="min-width:46px;font-size:11px">Raid:</label>
+              <input type="number" id="sim-raid-viewers" value="50" min="1" style="width:56px;padding:5px 8px;border:1px solid #3a3a5a;border-radius:4px;background:#2a2a4a;color:#fff;font-size:11px">
+              <span style="font-size:11px;color:#888">viewers</span>
+              <button id="btn-sim-fire-raid" class="panel-btn" style="font-size:11px;padding:4px 8px;margin-left:auto" disabled>Fire</button>
+            </div>
+          </div>
+          <div style="border-top:1px solid #2a2a4a;padding-top:8px;margin-top:8px">
+            <div style="font-size:11px;color:#888;margin-bottom:6px">Scenario</div>
+            <div class="effect-params" style="margin-bottom:6px">
+              <div class="param-row">
+                <label>Duration:</label>
+                <input type="number" id="sim-scenario-duration" value="30" min="1" style="width:56px;padding:5px 8px;border:1px solid #3a3a5a;border-radius:4px;background:#2a2a4a;color:#fff;font-size:11px">
+                <span style="font-size:11px;color:#888">s</span>
+              </div>
+              <div class="param-row">
+                <label>Events/s:</label>
+                <input type="number" id="sim-scenario-rate" value="1" min="0.1" step="0.1" style="width:56px;padding:5px 8px;border:1px solid #3a3a5a;border-radius:4px;background:#2a2a4a;color:#fff;font-size:11px">
+              </div>
+            </div>
+            <div id="sim-scenario-actions" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
+              <button class="sim-action-chip" data-action="chat" style="padding:3px 8px;font-size:10px;border-radius:10px;border:1px solid #4a90d9;background:#1a1a2e;color:#4a90d9;cursor:pointer">chat</button>
+              <button class="sim-action-chip" data-action="follow" style="padding:3px 8px;font-size:10px;border-radius:10px;border:1px solid #4a90d9;background:#1a1a2e;color:#4a90d9;cursor:pointer">follow</button>
+              <button class="sim-action-chip" data-action="subscribe" style="padding:3px 8px;font-size:10px;border-radius:10px;border:1px solid #4a90d9;background:#1a1a2e;color:#4a90d9;cursor:pointer">subscribe</button>
+              <button class="sim-action-chip" data-action="resub" style="padding:3px 8px;font-size:10px;border-radius:10px;border:1px solid #4a90d9;background:#1a1a2e;color:#4a90d9;cursor:pointer">resub</button>
+              <button class="sim-action-chip" data-action="giftsub" style="padding:3px 8px;font-size:10px;border-radius:10px;border:1px solid #4a90d9;background:#1a1a2e;color:#4a90d9;cursor:pointer">giftsub</button>
+              <button class="sim-action-chip" data-action="cheer" style="padding:3px 8px;font-size:10px;border-radius:10px;border:1px solid #4a90d9;background:#1a1a2e;color:#4a90d9;cursor:pointer">cheer</button>
+              <button class="sim-action-chip" data-action="raid" style="padding:3px 8px;font-size:10px;border-radius:10px;border:1px solid #4a90d9;background:#1a1a2e;color:#4a90d9;cursor:pointer">raid</button>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button id="btn-sim-run" class="panel-btn panel-btn-success" style="flex:1;font-size:11px" disabled>Start</button>
+              <button id="btn-sim-stop" class="panel-btn panel-btn-danger" style="flex:1;font-size:11px" disabled>Stop</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button id="btn-twitch-connect" class="panel-btn panel-btn-success" style="flex:1">Connect</button>
+          <button id="btn-twitch-disconnect" class="panel-btn panel-btn-danger" style="flex:1" disabled>Disconnect</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -377,6 +497,7 @@
     <div class="blork-tabs-header" id="settings-drag-handle">
       <div class="blork-tabs-detach-grip" id="settings-detach-grip"></div>
       <span class="blork-tabs-title">Settings</span>
+      <button class="blork-tabs-pin-btn" id="settings-pin-btn"></button>
       <button class="blork-tabs-collapse-btn" id="settings-collapse">+</button>
     </div>
     <div class="blork-tabs-content blork-tabs-content-collapsed" id="settings-content">
@@ -447,6 +568,7 @@
     <div class="blork-tabs-header" id="entity-drag-handle">
       <div class="blork-tabs-detach-grip" id="entity-detach-grip"></div>
       <span class="blork-tabs-title">Entity Management</span>
+      <button class="blork-tabs-pin-btn" id="entity-pin-btn"></button>
       <button class="blork-tabs-collapse-btn" id="entity-collapse">+</button>
     </div>
     <div class="blork-tabs-content blork-tabs-content-collapsed" id="entity-content">
@@ -553,51 +675,78 @@
     <div class="blork-tabs-header" id="effects-drag-handle">
       <div class="blork-tabs-detach-grip" id="effects-detach-grip"></div>
       <span class="blork-tabs-title">Effects</span>
+      <button class="blork-tabs-pin-btn" id="effects-pin-btn"></button>
       <button class="blork-tabs-collapse-btn" id="effects-collapse">+</button>
     </div>
     <div class="blork-tabs-content blork-tabs-content-collapsed" id="effects-content">
-      <!-- Burst Effect -->
+
+      <!-- Active Effects -->
       <div class="effect-section">
-        <div class="effect-header">
-          <label class="toggle-switch">
-            <input type="checkbox" id="checkbox-burst">
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="effect-title">Burst Effect</span>
+        <div class="effect-header" style="margin-bottom:8px">
+          <span class="effect-title">Active</span>
+          <button id="btn-stop-all-effects" class="panel-btn panel-btn-danger" style="font-size:11px;padding:4px 8px">Stop All</button>
         </div>
-        <div class="effect-params">
-          <div class="param-row">
-            <label>Interval (ms):</label>
-            <input type="number" id="burst-interval" value="2000" min="100">
-          </div>
-          <div class="param-row">
-            <label>Count:</label>
-            <input type="number" id="burst-count" value="8" min="1">
-          </div>
-          <div class="param-row">
-            <label>Force:</label>
-            <input type="number" id="burst-force" value="15" min="1">
-          </div>
-        </div>
-        <div class="effect-entities">
-          <div class="entities-header">
-            <span>Entity Types</span>
-            <button class="add-entity-btn" id="burst-add-entity">+ Add</button>
-          </div>
-          <div class="entity-list" id="burst-entity-list"></div>
+        <div id="active-effects-list">
+          <div class="empty-message">No active effects</div>
         </div>
       </div>
 
-      <!-- Rain Effect -->
+      <!-- New Event -->
       <div class="effect-section">
-        <div class="effect-header">
-          <label class="toggle-switch">
-            <input type="checkbox" id="checkbox-rain">
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="effect-title">Rain Effect</span>
+        <div class="effect-header" style="margin-bottom:8px">
+          <span class="effect-title">New Event</span>
         </div>
         <div class="effect-params">
+          <div class="param-row">
+            <label>Type:</label>
+            <select id="effect-type-select" class="select-input" style="width:120px;margin-left:auto">
+              <option value="burst">Burst</option>
+              <option value="rain">Rain</option>
+              <option value="stream">Stream</option>
+              <option value="spawn">Spawn</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Origin (hidden for rain) -->
+        <div id="origin-section" class="effect-params">
+          <div class="param-row">
+            <label>Origin:</label>
+            <div style="display:flex;gap:0;border-radius:4px;overflow:hidden;border:1px solid #3a3a5a">
+              <button id="btn-origin-fixed" style="padding:3px 8px;font-size:11px;background:#3a4a6a;border:none;color:#fff;cursor:pointer">Fixed</button>
+              <button id="btn-origin-mouse" style="padding:3px 8px;font-size:11px;background:#2a2a4a;border:none;color:#888;cursor:pointer">Mouse</button>
+            </div>
+          </div>
+          <div id="origin-fixed-row">
+            <div class="param-row">
+              <label>X (%):</label>
+              <input type="number" id="origin-x" value="50" min="-50" max="150" step="5">
+            </div>
+            <div class="param-row">
+              <label>Y (%):</label>
+              <input type="number" id="origin-y" value="50" min="-50" max="150" step="5">
+            </div>
+          </div>
+        </div>
+
+        <!-- Burst params -->
+        <div id="params-burst" class="effect-params">
+          <div class="param-row">
+            <label>Interval (ms):</label>
+            <input type="number" id="burst-interval" value="2000" min="100" style="margin-left:auto">
+          </div>
+          <div class="param-row">
+            <label>Count:</label>
+            <input type="number" id="burst-count" value="8" min="1" style="margin-left:auto">
+          </div>
+          <div class="param-row">
+            <label>Force:</label>
+            <input type="number" id="burst-force" value="15" min="1" style="margin-left:auto">
+          </div>
+        </div>
+
+        <!-- Rain params -->
+        <div id="params-rain" class="effect-params" style="display:none">
           <div class="param-row">
             <label>Spawn Rate (/sec):</label>
             <input type="number" id="rain-spawn-rate" value="5" min="0.1" step="0.5">
@@ -607,33 +756,9 @@
             <input type="number" id="rain-spawn-width" value="1" min="0.1" max="1" step="0.1">
           </div>
         </div>
-        <div class="effect-entities">
-          <div class="entities-header">
-            <span>Entity Types</span>
-            <button class="add-entity-btn" id="rain-add-entity">+ Add</button>
-          </div>
-          <div class="entity-list" id="rain-entity-list"></div>
-        </div>
-      </div>
 
-      <!-- Stream Effect -->
-      <div class="effect-section">
-        <div class="effect-header">
-          <label class="toggle-switch">
-            <input type="checkbox" id="checkbox-stream">
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="effect-title">Stream Effect</span>
-        </div>
-        <div class="effect-params">
-          <div class="param-row">
-            <label>Origin X (%):</label>
-            <input type="number" id="stream-origin-x" value="50" min="-50" max="150" step="5">
-          </div>
-          <div class="param-row">
-            <label>Origin Y (%):</label>
-            <input type="number" id="stream-origin-y" value="0" min="-50" max="150" step="5">
-          </div>
+        <!-- Stream params -->
+        <div id="params-stream" class="effect-params" style="display:none">
           <div class="param-row">
             <label>Direction (deg):</label>
             <input type="number" id="stream-direction" value="90" min="0" max="360" step="5">
@@ -651,13 +776,79 @@
             <input type="number" id="stream-cone-angle" value="15" min="0" max="180" step="5">
           </div>
         </div>
+
+        <!-- Spawn params -->
+        <div id="params-spawn" class="effect-params" style="display:none">
+          <div class="param-row">
+            <label>Count:</label>
+            <input type="number" id="spawn-count" value="5" min="1" style="margin-left:auto">
+          </div>
+          <div class="param-row">
+            <label>Force:</label>
+            <input type="number" id="spawn-force" value="10" min="0" style="margin-left:auto">
+          </div>
+        </div>
+
+        <!-- Trigger section -->
         <div class="effect-entities">
           <div class="entities-header">
-            <span>Entity Types</span>
-            <button class="add-entity-btn" id="stream-add-entity">+ Add</button>
+            <span>Trigger</span>
+            <button class="add-entity-btn" id="btn-add-condition">+ Add Condition</button>
           </div>
-          <div class="entity-list" id="stream-entity-list"></div>
+          <div id="trigger-combinator-row" class="param-row" style="display:none;margin-bottom:8px">
+            <label>Match:</label>
+            <select id="trigger-combinator" class="select-input" style="width:80px">
+              <option value="OR">ANY</option>
+              <option value="AND">ALL</option>
+            </select>
+          </div>
+          <div class="entity-list" id="trigger-condition-list"></div>
+          <div id="trigger-threshold-row" class="param-row entities-header" style="display:none;margin-top:8px">
+            <span>Fire after:</span>
+            <input type="number" id="trigger-threshold" value="1" min="1" style="width:50px;margin-left:auto">
+            <span style="font-size:11px;color:#888">matches</span>
+          </div>
         </div>
+
+        <!-- Entities section -->
+        <div class="effect-entities">
+          <div class="entities-header">
+            <span>Entities</span>
+            <button class="add-entity-btn" id="btn-add-entity">+ Add Entity</button>
+          </div>
+          <div class="entity-list" id="new-effect-entity-list"></div>
+        </div>
+
+        <!-- Lifecycle section -->
+        <div class="effect-entities">
+          <div class="entities-header">
+            <span>Lifecycle</span>
+          </div>
+          <div class="effect-params" style="margin-bottom:0">
+            <div class="param-row">
+              <label>Duration:</label>
+              <select id="lifecycle-duration-type" class="select-input" style="width:110px">
+                <option value="none">No limit</option>
+                <option value="time">Time (sec)</option>
+                <option value="count">Entity count</option>
+              </select>
+              <input type="number" id="lifecycle-duration-value" value="10" min="1" style="width:60px;display:none">
+            </div>
+            <div class="param-row">
+              <label>Max fires:</label>
+              <input type="number" id="lifecycle-max-triggers" placeholder="∞" min="1">
+            </div>
+            <div class="param-row">
+              <label>Re-trigger:</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="lifecycle-allow-retrigger">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <button id="btn-create-effect" class="panel-btn panel-btn-success" style="width:100%;margin-top:12px">Create</button>
       </div>
     </div>
   </div>
@@ -667,6 +858,7 @@
     <div class="blork-tabs-header" id="input-drag-handle">
       <div class="blork-tabs-detach-grip" id="input-detach-grip"></div>
       <span class="blork-tabs-title">Event Detection</span>
+      <button class="blork-tabs-pin-btn" id="input-pin-btn"></button>
       <button class="blork-tabs-collapse-btn" id="input-collapse">+</button>
     </div>
     <div class="blork-tabs-content blork-tabs-content-collapsed" id="input-content">
@@ -717,6 +909,25 @@
           <span class="effect-title">Event Log</span>
         </div>
         <div id="event-log-container"></div>
+      </div>
+      <div class="effect-section">
+        <div class="effect-header" style="margin-bottom:8px">
+          <span class="effect-title">Chat</span>
+        </div>
+        <div id="chat-log-container"></div>
+      </div>
+      <div class="effect-section">
+        <div class="effect-header" style="margin-bottom:8px">
+          <span class="effect-title">User Lookup</span>
+        </div>
+        <div class="effect-params" style="margin-bottom:8px">
+          <div class="param-row">
+            <label>User ID:</label>
+            <input type="text" id="lookup-id" placeholder="Numeric user ID">
+          </div>
+        </div>
+        <button id="btn-lookup" class="panel-btn" style="width:100%">Lookup</button>
+        <div id="lookup-result" style="margin-top:8px;font-size:12px;color:#aaa"></div>
       </div>
     </div>
   </div>

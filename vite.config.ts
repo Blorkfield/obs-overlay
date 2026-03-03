@@ -41,6 +41,7 @@ function setupMouseWebSocket(wss: WebSocketServer) {
 }
 
 export default defineConfig({
+  resolve: {},
   server: {
     port: 5173,
     strictPort: true,
