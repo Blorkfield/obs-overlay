@@ -854,6 +854,26 @@ function fireTriggerFor(data: TriggerEventData): void {
   }
 }
 
+async function circleClipUrl(url: string, diameter: number): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = diameter;
+      canvas.height = diameter;
+      const ctx = canvas.getContext('2d')!;
+      ctx.beginPath();
+      ctx.arc(diameter / 2, diameter / 2, diameter / 2, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(img, 0, 0, diameter, diameter);
+      try { resolve(canvas.toDataURL('image/png')); } catch { resolve(url); }
+    };
+    img.onerror = () => resolve(url);
+    img.src = url;
+  });
+}
+
 async function resolveEntityConfigs(entities: EntityDefinition[], userId: string | null): Promise<EffectObjectConfig[]> {
   const configs: EffectObjectConfig[] = [];
   for (const entity of entities) {
@@ -872,8 +892,9 @@ async function resolveEntityConfigs(entities: EntityDefinition[], userId: string
       if (twitchChat && userId) {
         try { imageUrl = await twitchChat.getProfilePictureUrl(userId) ?? undefined; } catch { /* fallback */ }
       }
+      const clippedUrl = imageUrl ? await circleClipUrl(imageUrl, entity.radius * 2) : undefined;
       configs.push({
-        objectConfig: { fillStyle: randomEffectColor(), imageUrl, tags: entity.tags },
+        objectConfig: { fillStyle: randomEffectColor(), imageUrl: clippedUrl, tags: entity.tags },
         probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
       });
     } else if (entity.source === 'recent-chatters') {
@@ -891,7 +912,7 @@ async function resolveEntityConfigs(entities: EntityDefinition[], userId: string
           const urlMap = await twitchChat.getProfilePictureUrls(uniqueIds);
           for (const [, url] of urlMap) {
             configs.push({
-              objectConfig: { fillStyle: randomEffectColor(), imageUrl: url ?? undefined, tags: entity.tags },
+              objectConfig: { fillStyle: randomEffectColor(), imageUrl: url ? await circleClipUrl(url, entity.radius * 2) : undefined, tags: entity.tags },
               probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
             });
           }
