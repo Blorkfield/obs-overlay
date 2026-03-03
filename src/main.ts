@@ -23,7 +23,7 @@ interface TriggerEventData {
 interface TriggerCondition { type: EffectTriggerConditionType; value: string; }
 interface TriggerConfig { conditions: TriggerCondition[]; combinator: 'AND' | 'OR'; fireThreshold: number; }
 type EntitySource = 'shape' | 'url' | 'trigger-sender' | 'recent-chatters';
-interface EntityDefinition { source: EntitySource; color: string; url: string; windowMinutes: number; radius: number; }
+interface EntityDefinition { source: EntitySource; color: string; url: string; windowMinutes: number; radius: number; tags: string[]; }
 type DurationType = 'none' | 'time' | 'count';
 interface LifecycleConfig { durationType: DurationType; durationValue: number; maxTriggers: number; allowRetrigger: boolean; }
 interface EffectDefinition {
@@ -699,6 +699,23 @@ function addEntityRow(): void {
       <label style="width:30px">Radius:</label>
         <input type="number" class="entity-radius" value="20" min="5" max="100" style="width:50px">
     </div>
+    <div class="tag-picker" style="margin-top:6px">
+      <div class="tag-picker-label">Tags</div>
+      <div class="tag-picker-container">
+        <div class="tag-picker-column">
+          <div class="tag-picker-column-label">Available</div>
+          <select multiple class="tag-picker-select entity-tags-available" style="min-height:60px"></select>
+        </div>
+        <div class="tag-picker-buttons">
+          <button class="panel-btn entity-tags-add">&gt;&gt;</button>
+          <button class="panel-btn entity-tags-remove">&lt;&lt;</button>
+        </div>
+        <div class="tag-picker-column">
+          <div class="tag-picker-column-label">Selected</div>
+          <select multiple class="tag-picker-select entity-tags-selected" style="min-height:60px"></select>
+        </div>
+      </div>
+    </div>
   `;
   const sourceSelect = row.querySelector('.entity-source') as HTMLSelectElement;
   sourceSelect.addEventListener('change', () => {
@@ -711,6 +728,22 @@ function addEntityRow(): void {
   allChattersCheck.addEventListener('change', () => {
     windowInput.disabled = allChattersCheck.checked;
     windowInput.style.opacity = allChattersCheck.checked ? '0.4' : '';
+  });
+  const tagsAvailableEl = row.querySelector('.entity-tags-available') as HTMLSelectElement;
+  const tagsSelectedEl = row.querySelector('.entity-tags-selected') as HTMLSelectElement;
+  // Populate available tags; FALLING selected by default
+  for (const tag of spawnableTags) {
+    const opt = document.createElement('option');
+    opt.value = tag;
+    opt.textContent = tag;
+    if (tag === TAGS.FALLING) tagsSelectedEl.appendChild(opt);
+    else tagsAvailableEl.appendChild(opt);
+  }
+  row.querySelector('.entity-tags-add')!.addEventListener('click', () => {
+    Array.from(tagsAvailableEl.selectedOptions).forEach(opt => tagsSelectedEl.appendChild(opt));
+  });
+  row.querySelector('.entity-tags-remove')!.addEventListener('click', () => {
+    Array.from(tagsSelectedEl.selectedOptions).forEach(opt => tagsAvailableEl.appendChild(opt));
   });
   (row.querySelector('.remove-btn') as HTMLButtonElement).addEventListener('click', () => row.remove());
   newEffectEntityList.appendChild(row);
@@ -733,7 +766,7 @@ function readTriggerConfig(): TriggerConfig | null {
 function readEntityDefinitions(): EntityDefinition[] {
   const rows = Array.from(newEffectEntityList.querySelectorAll<HTMLElement>('.entity-item'));
   if (rows.length === 0) {
-    return [{ source: 'shape', color: randomEffectColor(), url: '', windowMinutes: 5, radius: 20 }];
+    return [{ source: 'shape', color: randomEffectColor(), url: '', windowMinutes: 5, radius: 20, tags: [TAGS.FALLING] }];
   }
   return rows.map(row => {
     const source = (row.querySelector('.entity-source') as HTMLSelectElement).value as EntitySource;
@@ -742,12 +775,15 @@ function readEntityDefinitions(): EntityDefinition[] {
     const windowEl = row.querySelector<HTMLInputElement>('.entity-window');
     const allEl = row.querySelector<HTMLInputElement>('.entity-all-chatters');
     const radiusEl = row.querySelector<HTMLInputElement>('.entity-radius');
+    const tagsSelectedEl = row.querySelector<HTMLSelectElement>('.entity-tags-selected');
+    const tags = tagsSelectedEl ? Array.from(tagsSelectedEl.options).map(o => o.value) : [TAGS.FALLING];
     return {
       source,
       color: colorEl?.value ?? '#4a90d9',
       url: urlEl?.value.trim() ?? '',
       windowMinutes: allEl?.checked ? 0 : (parseInt(windowEl?.value ?? '5') || 5),
       radius: parseInt(radiusEl?.value ?? '20') || 20,
+      tags,
     };
   });
 }
@@ -823,13 +859,13 @@ async function resolveEntityConfigs(entities: EntityDefinition[], userId: string
   for (const entity of entities) {
     if (entity.source === 'shape') {
       configs.push({
-        objectConfig: { fillStyle: entity.color, tags: [TAGS.FALLING] },
-        probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: entity.radius,
+        objectConfig: { fillStyle: entity.color, tags: entity.tags },
+        probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
       });
     } else if (entity.source === 'url') {
       configs.push({
-        objectConfig: { fillStyle: randomEffectColor(), imageUrl: entity.url, tags: [TAGS.FALLING] },
-        probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: entity.radius,
+        objectConfig: { fillStyle: randomEffectColor(), imageUrl: entity.url, tags: entity.tags },
+        probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
       });
     } else if (entity.source === 'trigger-sender') {
       let imageUrl: string | undefined;
@@ -837,8 +873,8 @@ async function resolveEntityConfigs(entities: EntityDefinition[], userId: string
         try { imageUrl = await twitchChat.getProfilePictureUrl(userId) ?? undefined; } catch { /* fallback */ }
       }
       configs.push({
-        objectConfig: { fillStyle: randomEffectColor(), imageUrl, tags: [TAGS.FALLING] },
-        probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: entity.radius,
+        objectConfig: { fillStyle: randomEffectColor(), imageUrl, tags: entity.tags },
+        probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
       });
     } else if (entity.source === 'recent-chatters') {
       const filtered = entity.windowMinutes === 0
@@ -847,29 +883,29 @@ async function resolveEntityConfigs(entities: EntityDefinition[], userId: string
       const uniqueIds = [...new Set(filtered.map(c => c.userId))];
       if (uniqueIds.length === 0) {
         configs.push({
-          objectConfig: { fillStyle: randomEffectColor(), tags: [TAGS.FALLING] },
-          probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: entity.radius,
+          objectConfig: { fillStyle: randomEffectColor(), tags: entity.tags },
+          probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
         });
       } else if (twitchChat) {
         try {
           const urlMap = await twitchChat.getProfilePictureUrls(uniqueIds);
           for (const [, url] of urlMap) {
             configs.push({
-              objectConfig: { fillStyle: randomEffectColor(), imageUrl: url ?? undefined, tags: [TAGS.FALLING] },
-              probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: entity.radius,
+              objectConfig: { fillStyle: randomEffectColor(), imageUrl: url ?? undefined, tags: entity.tags },
+              probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
             });
           }
         } catch {
           configs.push({
-            objectConfig: { fillStyle: randomEffectColor(), tags: [TAGS.FALLING] },
-            probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: entity.radius,
+            objectConfig: { fillStyle: randomEffectColor(), tags: entity.tags },
+            probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
           });
         }
       } else {
         for (let i = 0; i < uniqueIds.length; i++) {
           configs.push({
-            objectConfig: { fillStyle: randomEffectColor(), tags: [TAGS.FALLING] },
-            probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: entity.radius,
+            objectConfig: { fillStyle: randomEffectColor(), tags: entity.tags },
+            probability: 1, minScale: 1, maxScale: 1, baseRadius: entity.radius,
           });
         }
       }
@@ -877,7 +913,7 @@ async function resolveEntityConfigs(entities: EntityDefinition[], userId: string
   }
   return configs.length > 0 ? configs : [{
     objectConfig: { fillStyle: randomEffectColor(), tags: [TAGS.FALLING] },
-    probability: 1, minScale: 0.8, maxScale: 1.3, baseRadius: 20,
+    probability: 1, minScale: 1, maxScale: 1, baseRadius: 20,
   }];
 }
 
