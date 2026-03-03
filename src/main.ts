@@ -28,14 +28,16 @@ type DurationType = 'none' | 'time' | 'count';
 interface LifecycleConfig { durationType: DurationType; durationValue: number; maxTriggers: number; allowRetrigger: boolean; }
 interface EffectDefinition {
   id: string;
-  effectType: 'burst' | 'rain' | 'stream';
+  effectType: 'burst' | 'rain' | 'stream' | 'spawn';
   trigger: TriggerConfig | null;
   lifecycle: LifecycleConfig;
   entities: EntityDefinition[];
+  originType: 'fixed' | 'mouse';
+  originX: number; originY: number;
   burstInterval: number; burstCount: number; burstForce: number;
   rainSpawnRate: number; rainSpawnWidth: number;
-  streamOriginX: number; streamOriginY: number; streamDirection: number;
-  streamSpawnRate: number; streamForce: number; streamConeAngle: number;
+  streamDirection: number; streamSpawnRate: number; streamForce: number; streamConeAngle: number;
+  spawnCount: number; spawnForce: number;
 }
 interface ArmedEvent {
   definition: EffectDefinition;
@@ -183,6 +185,10 @@ const effectsContent = document.getElementById('effects-content') as HTMLDivElem
 const activeEffectsList = document.getElementById('active-effects-list') as HTMLDivElement;
 const btnStopAllEffects = document.getElementById('btn-stop-all-effects') as HTMLButtonElement;
 const effectTypeSelect = document.getElementById('effect-type-select') as HTMLSelectElement;
+const originSection = document.getElementById('origin-section') as HTMLDivElement;
+const btnOriginFixed = document.getElementById('btn-origin-fixed') as HTMLButtonElement;
+const btnOriginMouse = document.getElementById('btn-origin-mouse') as HTMLButtonElement;
+const originFixedRow = document.getElementById('origin-fixed-row') as HTMLDivElement;
 const btnAddCondition = document.getElementById('btn-add-condition') as HTMLButtonElement;
 const triggerConditionList = document.getElementById('trigger-condition-list') as HTMLDivElement;
 const triggerCombinatorRow = document.getElementById('trigger-combinator-row') as HTMLDivElement;
@@ -211,6 +217,14 @@ let mouseWs: WebSocket | null = null;
 
 // Debug log (initialized later with TabManager)
 let debugLog: ReturnType<typeof TabManager.prototype.createDebugLog> | null = null;
+
+// Mouse position (canvas space, updated from WebSocket)
+let mouseX = 0;
+let mouseY = 0;
+let mouseDataReceived = false;
+
+// Effect origin type for new event form
+let effectOriginType: 'fixed' | 'mouse' = 'fixed';
 
 // Twitch state
 let twitchChat: TwitchClient | null = null;
@@ -356,6 +370,9 @@ function connectMouseWebSocket(): void {
       if (data.type === 'mouse' || data.type === 'move') {
         // Mouse position update from OBS script - transform to canvas space
         const { x, y } = transformMouseCoordinates(data.x, data.y);
+        mouseX = x;
+        mouseY = y;
+        mouseDataReceived = true;
         scene?.setFollowTarget('mouse', x, y);
         scene?.setFollowTarget('offset', x, y);
         obsClient.updateMousePosition(x, y);
@@ -640,6 +657,8 @@ function addConditionRow(): void {
     valueInput.style.display = condNoValue.has(t) ? 'none' : '';
     valueInput.placeholder = condValuePlaceholders[t] ?? 'value';
   });
+  // Apply initial visibility based on default selected option
+  valueInput.style.display = condNoValue.has(typeSelect.value as EffectTriggerConditionType) ? 'none' : '';
   (row.querySelector('.remove-btn') as HTMLButtonElement).addEventListener('click', () => {
     row.remove();
     updateTriggerVisibility();
@@ -740,7 +759,7 @@ function getInputVal(id: string, fallback: number): number {
 function readEffectDefinition(): EffectDefinition {
   return {
     id: `event-${Date.now()}`,
-    effectType: effectTypeSelect.value as 'burst' | 'rain' | 'stream',
+    effectType: effectTypeSelect.value as 'burst' | 'rain' | 'stream' | 'spawn',
     trigger: readTriggerConfig(),
     lifecycle: {
       durationType: lifecycleDurationType.value as DurationType,
@@ -749,17 +768,20 @@ function readEffectDefinition(): EffectDefinition {
       allowRetrigger: lifecycleAllowRetrigger.checked,
     },
     entities: readEntityDefinitions(),
+    originType: effectOriginType,
+    originX: getInputVal('origin-x', 50),
+    originY: getInputVal('origin-y', 50),
     burstInterval: getInputVal('burst-interval', 2000),
     burstCount: getInputVal('burst-count', 8),
     burstForce: getInputVal('burst-force', 15),
     rainSpawnRate: getInputVal('rain-spawn-rate', 5),
     rainSpawnWidth: getInputVal('rain-spawn-width', 1),
-    streamOriginX: getInputVal('stream-origin-x', 50),
-    streamOriginY: getInputVal('stream-origin-y', 0),
     streamDirection: getInputVal('stream-direction', 90),
     streamSpawnRate: getInputVal('stream-spawn-rate', 10),
     streamForce: getInputVal('stream-force', 15),
     streamConeAngle: getInputVal('stream-cone-angle', 15),
+    spawnCount: getInputVal('spawn-count', 5),
+    spawnForce: getInputVal('spawn-force', 10),
   };
 }
 
@@ -859,7 +881,38 @@ async function resolveEntityConfigs(entities: EntityDefinition[], userId: string
   }];
 }
 
+function resolveOriginPx(def: EffectDefinition): { x: number; y: number } {
+  if (!canvas) return { x: 0, y: 0 };
+  if (def.originType === 'mouse') {
+    // Fall back to canvas center if OBS mouse relay hasn't sent data yet
+    return mouseDataReceived
+      ? { x: mouseX, y: mouseY }
+      : { x: canvas.width / 2, y: canvas.height / 2 };
+  }
+  return {
+    x: (def.originX / 100) * canvas.width,
+    y: (def.originY / 100) * canvas.height,
+  };
+}
+
+async function spawnEntitiesAt(objectConfigs: EffectObjectConfig[], count: number, x: number, y: number, force: number, ttl: number | undefined): Promise<void> {
+  if (!scene) return;
+  const total = objectConfigs.reduce((s, c) => s + c.probability, 0);
+  for (let i = 0; i < count; i++) {
+    let r = Math.random() * total;
+    const cfg = objectConfigs.find(c => { r -= c.probability; return r <= 0; }) ?? objectConfigs[0];
+    const scale = cfg.minScale + Math.random() * (cfg.maxScale - cfg.minScale);
+    const radius = (cfg.baseRadius ?? 20) * scale;
+    const id = await scene.spawnObjectAsync({ ...cfg.objectConfig, x, y, radius, ttl });
+    if (force > 0) {
+      const angle = Math.random() * Math.PI * 2;
+      scene.setVelocity(id, { x: Math.cos(angle) * force, y: Math.sin(angle) * force });
+    }
+  }
+}
+
 function computeStopDelayMs(def: EffectDefinition): number | null {
+  if (def.effectType === 'spawn') return null;
   const { durationType, durationValue } = def.lifecycle;
   if (durationType === 'none') return null;
   if (durationType === 'time') return durationValue * 1000;
@@ -869,8 +922,9 @@ function computeStopDelayMs(def: EffectDefinition): number | null {
 }
 
 function buildSceneEffectConfig(def: EffectDefinition, objectConfigs: EffectObjectConfig[], effectId: string) {
+  const origin = resolveOriginPx(def);
   if (def.effectType === 'burst') {
-    return { id: effectId, enabled: true, objectConfigs, type: 'burst' as const, burstInterval: def.burstInterval, burstCount: def.burstCount, burstForce: def.burstForce };
+    return { id: effectId, enabled: true, objectConfigs, type: 'burst' as const, origin, burstInterval: def.burstInterval, burstCount: def.burstCount, burstForce: def.burstForce };
   }
   if (def.effectType === 'rain') {
     return { id: effectId, enabled: true, objectConfigs, type: 'rain' as const, spawnRate: def.rainSpawnRate, spawnWidth: def.rainSpawnWidth };
@@ -878,10 +932,7 @@ function buildSceneEffectConfig(def: EffectDefinition, objectConfigs: EffectObje
   const dirRad = def.streamDirection * Math.PI / 180;
   return {
     id: effectId, enabled: true, objectConfigs, type: 'stream' as const,
-    origin: {
-      x: canvas ? (def.streamOriginX / 100) * canvas.width : 0,
-      y: canvas ? (def.streamOriginY / 100) * canvas.height : 0,
-    },
+    origin,
     direction: { x: Math.cos(dirRad), y: Math.sin(dirRad) },
     spawnRate: def.streamSpawnRate,
     force: def.streamForce,
@@ -894,6 +945,19 @@ async function fireEvent(armed: ArmedEvent, userId: string | null): Promise<void
   if (!def.lifecycle.allowRetrigger && armed.isActive) return;
   if (!scene) return;
   const objectConfigs = await resolveEntityConfigs(def.entities, userId);
+
+  if (def.effectType === 'spawn') {
+    const { x, y } = resolveOriginPx(def);
+    const ttl = def.lifecycle.durationType === 'time' ? def.lifecycle.durationValue * 1000 : undefined;
+    await spawnEntitiesAt(objectConfigs, def.spawnCount, x, y, def.spawnForce, ttl);
+    armed.triggerCount++;
+    if (def.lifecycle.maxTriggers > 0 && armed.triggerCount >= def.lifecycle.maxTriggers) {
+      armedEvents.delete(def.id);
+    }
+    renderActiveEffects();
+    return;
+  }
+
   const effectId = nextEffectId(def.effectType);
   scene.setEffect(buildSceneEffectConfig(def, objectConfigs, effectId));
   armed.isActive = true;
@@ -973,11 +1037,17 @@ async function createEffectEvent(): Promise<void> {
   const def = readEffectDefinition();
   if (def.trigger === null) {
     const objectConfigs = await resolveEntityConfigs(def.entities, null);
-    const effectId = nextEffectId(def.effectType);
-    scene.setEffect(buildSceneEffectConfig(def, objectConfigs, effectId));
-    const delay = computeStopDelayMs(def);
-    if (delay !== null) {
-      setTimeout(() => { scene?.removeEffect(effectId); renderActiveEffects(); }, delay);
+    if (def.effectType === 'spawn') {
+      const { x, y } = resolveOriginPx(def);
+      const ttl = def.lifecycle.durationType === 'time' ? def.lifecycle.durationValue * 1000 : undefined;
+      await spawnEntitiesAt(objectConfigs, def.spawnCount, x, y, def.spawnForce, ttl);
+    } else {
+      const effectId = nextEffectId(def.effectType);
+      scene.setEffect(buildSceneEffectConfig(def, objectConfigs, effectId));
+      const delay = computeStopDelayMs(def);
+      if (delay !== null) {
+        setTimeout(() => { scene?.removeEffect(effectId); renderActiveEffects(); }, delay);
+      }
     }
   } else {
     armedEvents.set(def.id, { definition: def, matchCount: 0, triggerCount: 0, isActive: false, activeEffectId: null, stopTimer: null });
@@ -1001,10 +1071,25 @@ effectTypeSelect.addEventListener('change', () => {
   (document.getElementById('params-burst') as HTMLElement).style.display = type === 'burst' ? '' : 'none';
   (document.getElementById('params-rain') as HTMLElement).style.display = type === 'rain' ? '' : 'none';
   (document.getElementById('params-stream') as HTMLElement).style.display = type === 'stream' ? '' : 'none';
+  (document.getElementById('params-spawn') as HTMLElement).style.display = type === 'spawn' ? '' : 'none';
+  originSection.style.display = type === 'rain' ? 'none' : '';
 });
 lifecycleDurationType.addEventListener('change', () => {
   lifecycleDurationValue.style.display = lifecycleDurationType.value !== 'none' ? '' : 'none';
 });
+btnOriginFixed.addEventListener('click', () => {
+  effectOriginType = 'fixed';
+  btnOriginFixed.style.background = '#3a4a6a'; btnOriginFixed.style.color = '#fff';
+  btnOriginMouse.style.background = '#2a2a4a'; btnOriginMouse.style.color = '#888';
+  originFixedRow.style.display = '';
+});
+btnOriginMouse.addEventListener('click', () => {
+  effectOriginType = 'mouse';
+  btnOriginMouse.style.background = '#3a4a6a'; btnOriginMouse.style.color = '#fff';
+  btnOriginFixed.style.background = '#2a2a4a'; btnOriginFixed.style.color = '#888';
+  originFixedRow.style.display = 'none';
+});
+
 btnAddCondition.addEventListener('click', addConditionRow);
 btnAddEntity.addEventListener('click', addEntityRow);
 btnCreateEffect.addEventListener('click', () => { void createEffectEvent(); });

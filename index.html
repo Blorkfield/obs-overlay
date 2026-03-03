@@ -703,7 +703,29 @@
               <option value="burst">Burst</option>
               <option value="rain">Rain</option>
               <option value="stream">Stream</option>
+              <option value="spawn">Spawn</option>
             </select>
+          </div>
+        </div>
+
+        <!-- Origin (hidden for rain) -->
+        <div id="origin-section" class="effect-params">
+          <div class="param-row">
+            <label>Origin:</label>
+            <div style="display:flex;gap:0;border-radius:4px;overflow:hidden;border:1px solid #3a3a5a">
+              <button id="btn-origin-fixed" style="padding:3px 8px;font-size:11px;background:#3a4a6a;border:none;color:#fff;cursor:pointer">Fixed</button>
+              <button id="btn-origin-mouse" style="padding:3px 8px;font-size:11px;background:#2a2a4a;border:none;color:#888;cursor:pointer">Mouse</button>
+            </div>
+          </div>
+          <div id="origin-fixed-row">
+            <div class="param-row">
+              <label>X (%):</label>
+              <input type="number" id="origin-x" value="50" min="-50" max="150" step="5">
+            </div>
+            <div class="param-row">
+              <label>Y (%):</label>
+              <input type="number" id="origin-y" value="50" min="-50" max="150" step="5">
+            </div>
           </div>
         </div>
 
@@ -738,14 +760,6 @@
         <!-- Stream params -->
         <div id="params-stream" class="effect-params" style="display:none">
           <div class="param-row">
-            <label>Origin X (%):</label>
-            <input type="number" id="stream-origin-x" value="50" min="-50" max="150" step="5">
-          </div>
-          <div class="param-row">
-            <label>Origin Y (%):</label>
-            <input type="number" id="stream-origin-y" value="0" min="-50" max="150" step="5">
-          </div>
-          <div class="param-row">
             <label>Direction (deg):</label>
             <input type="number" id="stream-direction" value="90" min="0" max="360" step="5">
           </div>
@@ -760,6 +774,18 @@
           <div class="param-row">
             <label>Cone Angle (deg):</label>
             <input type="number" id="stream-cone-angle" value="15" min="0" max="180" step="5">
+          </div>
+        </div>
+
+        <!-- Spawn params -->
+        <div id="params-spawn" class="effect-params" style="display:none">
+          <div class="param-row">
+            <label>Count:</label>
+            <input type="number" id="spawn-count" value="5" min="1" style="margin-left:auto">
+          </div>
+          <div class="param-row">
+            <label>Force:</label>
+            <input type="number" id="spawn-force" value="10" min="0" style="margin-left:auto">
           </div>
         </div>
 
