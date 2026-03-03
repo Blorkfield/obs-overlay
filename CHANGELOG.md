@@ -1,5 +1,11 @@
 # @blorkfield/obs-overlay
 
+## 0.4.0
+
+### Minor Changes
+
+- fc252fd: feat: chat integration
+
 ## 0.3.1
 
 ### Patch Changes
