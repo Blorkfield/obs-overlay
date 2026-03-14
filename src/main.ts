@@ -416,7 +416,7 @@ function connectMouseWebSocket(): void {
 connectMouseWebSocket();
 
 // Tag state
-const spawnableTags = [TAGS.FALLING, TAGS.FOLLOW_WINDOW, 'follow-offset', TAGS.GRABABLE];
+const spawnableTags = ['falling', TAGS.FOLLOW_WINDOW, 'follow-offset', TAGS.GRABABLE];
 let selectedSpawnTags: string[] = [];
 
 function getContainerSize(): { width: number; height: number } {
@@ -447,7 +447,7 @@ async function createScene(width: number, height: number): Promise<void> {
 
   scene = new OverlayScene(canvas, {
     bounds: { top: 0, bottom: height, left: 0, right: width },
-    gravity: 1,
+    gravity: { x: 0, y: -1 },
     wrapHorizontal: true,
     debug: config.overlay.debug,
     background: bgConfig,
@@ -736,7 +736,7 @@ function addEntityRow(): void {
     const opt = document.createElement('option');
     opt.value = tag;
     opt.textContent = tag;
-    if (tag === TAGS.FALLING) tagsSelectedEl.appendChild(opt);
+    if (tag === 'falling') tagsSelectedEl.appendChild(opt);
     else tagsAvailableEl.appendChild(opt);
   }
   row.querySelector('.entity-tags-add')!.addEventListener('click', () => {
@@ -766,7 +766,7 @@ function readTriggerConfig(): TriggerConfig | null {
 function readEntityDefinitions(): EntityDefinition[] {
   const rows = Array.from(newEffectEntityList.querySelectorAll<HTMLElement>('.entity-item'));
   if (rows.length === 0) {
-    return [{ source: 'shape', color: randomEffectColor(), url: '', windowMinutes: 5, radius: 20, tags: [TAGS.FALLING] }];
+    return [{ source: 'shape', color: randomEffectColor(), url: '', windowMinutes: 5, radius: 20, tags: ['falling'] }];
   }
   return rows.map(row => {
     const source = (row.querySelector('.entity-source') as HTMLSelectElement).value as EntitySource;
@@ -776,7 +776,7 @@ function readEntityDefinitions(): EntityDefinition[] {
     const allEl = row.querySelector<HTMLInputElement>('.entity-all-chatters');
     const radiusEl = row.querySelector<HTMLInputElement>('.entity-radius');
     const tagsSelectedEl = row.querySelector<HTMLSelectElement>('.entity-tags-selected');
-    const tags = tagsSelectedEl ? Array.from(tagsSelectedEl.options).map(o => o.value) : [TAGS.FALLING];
+    const tags = tagsSelectedEl ? Array.from(tagsSelectedEl.options).map(o => o.value) : ['falling'];
     return {
       source,
       color: colorEl?.value ?? '#4a90d9',
@@ -933,7 +933,7 @@ async function resolveEntityConfigs(entities: EntityDefinition[], userId: string
     }
   }
   return configs.length > 0 ? configs : [{
-    objectConfig: { fillStyle: randomEffectColor(), tags: [TAGS.FALLING] },
+    objectConfig: { fillStyle: randomEffectColor(), tags: ['falling'] },
     probability: 1, minScale: 1, maxScale: 1, baseRadius: 20,
   }];
 }

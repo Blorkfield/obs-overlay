@@ -1,9 +1,16 @@
 {
   "name": "@blorkfield/obs-overlay",
   "version": "0.4.0",
-  "private": true,
+"license": "GPL-3.0",
   "packageManager": "pnpm@10.28.2",
   "type": "module",
+  "files": [
+    "dist",
+    "server"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "pnpm build && vite",
     "build": "tsc && vite build",
@@ -13,7 +20,7 @@
   },
   "dependencies": {
     "@blorkfield/blork-tabs": "^0.4.0",
-    "@blorkfield/overlay-core": "^0.8.10",
+    "@blorkfield/overlay-core": "^0.11.0",
     "@blorkfield/twitch-integration": "^0.6.1",
     "express": "^4.22.1",
     "obs-websocket-js": "^5.0.7",
