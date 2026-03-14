@@ -1,5 +1,11 @@
 # @blorkfield/obs-overlay
 
+## 0.5.0
+
+### Minor Changes
+
+- b11f4a9: feat: entity controls
+
 ## 0.4.0
 
 ### Minor Changes
