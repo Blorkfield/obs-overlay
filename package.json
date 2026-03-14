@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@blorkfield/blork-tabs": "^0.4.0",
-    "@blorkfield/overlay-core": "^0.8.10",
+    "@blorkfield/overlay-core": "^0.11.0",
     "@blorkfield/twitch-integration": "^0.6.1",
     "express": "^4.22.1",
     "obs-websocket-js": "^5.0.7",
