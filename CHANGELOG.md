@@ -1,5 +1,11 @@
 # @blorkfield/obs-overlay
 
+## 0.5.1
+
+### Patch Changes
+
+- cff8502: fix: publish
+
 ## 0.5.0
 
 ### Minor Changes
