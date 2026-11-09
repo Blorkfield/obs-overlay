@@ -1,5 +1,11 @@
 # @blorkfield/obs-overlay
 
+## 0.5.2
+
+### Patch Changes
+
+- 1d51c9c: chore: machine handoff 2026 11 08
+
 ## 0.5.1
 
 ### Patch Changes
